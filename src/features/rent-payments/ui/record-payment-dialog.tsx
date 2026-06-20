@@ -70,16 +70,18 @@ export function RecordPaymentDialog({
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
-            <Label>Betrag €</Label>
+            <Label htmlFor="pay-amount">Betrag €</Label>
             <Input
+              id="pay-amount"
               inputMode="decimal"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
           </div>
           <div className="flex flex-col gap-1">
-            <Label>Wertstellung</Label>
+            <Label htmlFor="pay-date">Wertstellung</Label>
             <Input
+              id="pay-date"
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
@@ -87,8 +89,9 @@ export function RecordPaymentDialog({
           </div>
         </div>
         <div className="flex flex-col gap-1">
-          <Label>Verwendungszweck (optional)</Label>
+          <Label htmlFor="pay-reference">Verwendungszweck (optional)</Label>
           <Input
+            id="pay-reference"
             value={reference}
             onChange={(e) => setReference(e.target.value)}
           />

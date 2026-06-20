@@ -44,16 +44,18 @@ export function GenerateChargesDialog({ trigger }: { trigger: React.ReactNode })
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
-            <Label>Jahr</Label>
+            <Label htmlFor="charge-year">Jahr</Label>
             <Input
+              id="charge-year"
               type="number"
               value={year}
               onChange={(e) => setYear(Number(e.target.value))}
             />
           </div>
           <div className="flex flex-col gap-1">
-            <Label>Monat</Label>
+            <Label htmlFor="charge-month">Monat</Label>
             <Input
+              id="charge-month"
               type="number"
               min={1}
               max={12}
