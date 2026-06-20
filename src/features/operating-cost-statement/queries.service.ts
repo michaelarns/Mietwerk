@@ -60,6 +60,7 @@ export async function getStatementDetail(
         include: { shares: true },
       },
       results: true,
+      consumptions: { select: { itemId: true, unitId: true, value: true } },
     },
   });
   if (!statement) throw notFound("Abrechnung");

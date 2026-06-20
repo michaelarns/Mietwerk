@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, Users, Wallet } from "lucide-react";
+import { Building2, FileText, Users, Wallet } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 
@@ -10,6 +10,7 @@ const ITEMS = [
   { href: "/properties", label: "Objekte", icon: Building2 },
   { href: "/tenants", label: "Mieter", icon: Users },
   { href: "/payments", label: "Zahlungen", icon: Wallet },
+  { href: "/statements", label: "Abrechnungen", icon: FileText },
 ];
 
 export function AppNav() {
