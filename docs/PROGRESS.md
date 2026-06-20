@@ -10,7 +10,7 @@
 | 1 | Stammdaten: `properties`, `tenants-leases` (Kern-CRUD) | ✅ abgeschlossen (Review-Gate) |
 | 2 | Geldfluss: `rent-payments` inkl. Mahnwesen | ✅ abgeschlossen (Review-Gate offen) |
 | 3 | Buchhaltung: `costs-accounting` + `tax-afa`, Anlage-V-Export | ✅ Backend + Rechenlogik + UI + E2E (Review-Gate offen) |
-| 4 | Abrechnung: `operating-cost-statement` Engine + PDF (Herzstück) | offen |
+| 4 | Abrechnung: `operating-cost-statement` Engine + PDF (Herzstück) | 🚧 gebaut, Review-Gate / rechtliche Freigabe offen (ADR 0010) |
 | 5 | Auswertung: `dashboard-analytics` | offen |
 | 6 | KI: `ai-assistant` | offen |
 | 7 | Erweiterung: `maintenance` + `tenant-portal` | offen |
@@ -18,10 +18,11 @@
 
 ## Branch-Workflow
 
-`main` ist die **eindeutige Integrations-Spitze** (Stand: Phase 0 + 1 + 2).
-Jede Phase brancht von `main`; nach dem Review-Gate wird der Phasen-Branch in
-`main` integriert (kein Force, kein History-Rewrite); die nächste Phase startet
-wieder von `main`. Details: [ADR 0008](decisions/0008-branch-workflow.md).
+`main` ist die **eindeutige Integrations-Spitze** (Stand: Phase 0 bis 4 —
+Phase 3 Backend + UI + E2E sowie Phase 4 konsolidiert). Jede Phase brancht von
+`main`; nach dem Review-Gate wird der Phasen-Branch in `main` integriert (kein
+Force, kein History-Rewrite); die nächste Phase startet wieder von `main`.
+Details: [ADR 0008](decisions/0008-branch-workflow.md).
 
 ---
 
@@ -274,5 +275,65 @@ Steuerliche Regeln, Quellen und freigegebene Defaults: **ADR 0009**.
 
 ### Offen
 
-- Review-Gate (steuerliche Annahmen-Freigabe, ADR 0009), danach Phase 4 auf
-  diesem Branch. Merge nach `main` erst nach ausdrücklicher Freigabe (mit Phase 4).
+- Review-Gate (steuerliche Annahmen-Freigabe, ADR 0009) weiterhin offen. Phase 3
+  ist mit dieser Konsolidierung (Backend + UI + E2E) in `main` integriert.
+
+---
+
+## Phase 4 — Betriebskostenabrechnung 🚧 (Review-Gate offen)
+
+> Branch `claude/keen-faraday-fokhd5`, auf dem Phase-3-Backend aufgesetzt. Mit
+> der Konsolidierung steht Phase 4 — zusammen mit der vollständigen Phase 3
+> (Backend + UI + E2E) — in `main` (siehe Branch-Workflow).
+
+### Gebaut
+
+- **Schema:** `OperatingCostStatement` je Property + Zeitraum (≤ 12 Monate),
+  `advanceBasis` (SOLL/IST), konfigurierbarer Heizkosten-Verbrauchsanteil;
+  `…Item` (Snapshot + `consumptionSplit`), `…ItemShare` (Anteil je Position je
+  Mieter/Vermieter), `…Result` (Soll/Ist/Saldo, Tagesanteil),
+  `OperatingCostConsumption` (Verbrauchswerte je Einheit), `LeaseOccupancy`
+  (effektiv-datierte Personenzahl).
+- **Umlage-Engine (rein, höchste Testabdeckung):** Verteilung je Schlüssel
+  (Wohnfläche, Einheiten, Personen, Verbrauch) tagesgenau; Heizkosten-Split nach
+  §§ 7/8 HeizkostenV; **Leerstand trägt der Vermieter** (Divisor bleibt voll,
+  BGH VIII ZR 159/05); verlustfrei via `distributeCents`.
+- **Vorauszahlungsabgleich:** Soll (tagesgenau prorater) und Ist (NK-Anteil der
+  echten Zahlungen) → Nachzahlung/Guthaben.
+- **PDF-Infrastruktur (ADR 0003/0010):** `@react-pdf/renderer`, serverseitiges
+  `renderPdfToBuffer` + A4-Basis-Layout (`src/server/pdf`); Mieter-PDF mit den
+  vier formellen Mindestangaben (BGH/§ 259 BGB) + Abrechnungsfrist (§ 556 III).
+  Ablage über Storage-Port, Download via `/api/files/[id]`.
+- **Service/Router** (`operatingCostStatement`, org-gescoped) + **Ansichten**:
+  Liste, Anlegen (Objekt/Jahr), Verbrauchserfassung, Ergebnisvorschau je Mieter,
+  PDF erzeugen/herunterladen, Finalisieren/Löschen; Audit-Log.
+- **Seed:** je Mandant eine vollständige Beispielabrechnung 2025 (über den echten
+  Service). **ADR 0010** mit recherchierten Rechtsregeln + markierten Annahmen.
+
+### Verifiziert
+
+- `npm run typecheck`, `SKIP_ENV_VALIDATION=1 npm run lint`,
+  `SKIP_ENV_VALIDATION=1 npm run build` ✅
+- `npm run test`: **132 Unit-Tests grün** (u. a. 22 Engine/Abgleich + 3 PDF),
+  6 DB-Integrationsdateien skippen ohne DB (laufen in CI).
+- `prisma validate` ✅. ⚠️ **Nicht** gegen eine DB ausgeführt (kein Docker-Daemon
+  im Sandbox): `prisma db push`, `npm run db:seed`, die DB-Integrationstests
+  (inkl. Cross-Tenant Phase 4) und das Playwright-E2E sind geschrieben, aber
+  **in CI/mit DB zu verifizieren**.
+
+### Annahmen (⚠️ zur Freigabe — Details in ADR 0010)
+
+- Vorauszahlung **IST**; NK-Anteil anteilig aus gebündelter Sollmiete.
+- Heizkosten-Split **einstellbar** (Korridor 50–70 %), Default **50 % Verbrauch**.
+- Personenzahl **zeitraum-genau** (`LeaseOccupancy`); Proration **tagesgenau**.
+- Abrechnungszeitraum **Kalenderjahr** (≤ 12 Monate). Schlüssel je Kategorie aus
+  Phase-3-Mapping (Beleg-Override > Kategorie-Default > Wohnfläche).
+- Kostenzuordnung nach **Buchungs-/Leistungsdatum** im Zeitraum (nicht Kassenbasis).
+- `MITEIGENTUMSANTEIL` mangels Stammdaten → Fallback Wohnfläche (Hinweis).
+
+### Offene Punkte
+
+- Phase 3 ist mit dieser Konsolidierung in `main` integriert (Backend + UI + E2E);
+  dieser Phase-4-Branch baute auf dem Phase-3-Backend auf.
+- Review-Gate: Annahmen freigeben (ADR 0010); DB-gebundene Schritte in CI
+  verifizieren.

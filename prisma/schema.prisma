@@ -138,6 +138,9 @@ model Organization {
   documents               Document[]
   auditLogs               AuditLog[]
   units                   Unit[]
+  leaseOccupancies        LeaseOccupancy[]
+  statementItemShares     OperatingCostStatementItemShare[]
+  statementConsumptions   OperatingCostConsumption[]
 }
 
 /// Join between User and Organization, carrying the role within that org.
@@ -213,12 +216,13 @@ model Property {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  units                 Unit[]
-  transactions          Transaction[]
-  depreciationSchedules DepreciationSchedule[]
-  maintenanceTickets    MaintenanceTicket[]
-  documents             Document[]
+  organization            Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  units                   Unit[]
+  transactions            Transaction[]
+  depreciationSchedules   DepreciationSchedule[]
+  maintenanceTickets      MaintenanceTicket[]
+  operatingCostStatements OperatingCostStatement[]
+  documents               Document[]
 
   @@index([organizationId])
 }
@@ -240,10 +244,11 @@ model Unit {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  property     Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property     Property                   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   leases       Lease[]
   transactions Transaction[]
+  consumptions OperatingCostConsumption[]
   documents    Document[]
 
   @@index([organizationId])
@@ -296,15 +301,38 @@ model Lease {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  unit         Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  unit         Unit             @relation(fields: [unitId], references: [id], onDelete: Cascade)
   leaseTenants LeaseTenant[]
   rentPayments RentPayment[]
   payments     Payment[]
+  occupancies  LeaseOccupancy[]
   documents    Document[]
 
   @@index([organizationId])
   @@index([unitId])
+}
+
+/// Effektiv-datierte Personenzahl je Mietverhältnis (für den Personen-Umlage-
+/// schlüssel, § 556a BGB i.V.m. Vereinbarung). Intervalle [validFrom, validTo)
+/// erlauben tagesgenaue Personen-Tage über einen Abrechnungszeitraum; offenes
+/// Ende (`validTo = null`) gilt bis auf Weiteres.
+model LeaseOccupancy {
+  id             String    @id @default(cuid())
+  organizationId String
+  leaseId        String
+  personCount    Int // Anzahl Personen im Haushalt (>= 0)
+  validFrom      DateTime // UTC-Kalendertag, ab dem der Wert gilt (inklusive)
+  validTo        DateTime? // UTC-Kalendertag, bis zu dem der Wert gilt (exklusive); null = offen
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lease        Lease        @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([leaseId])
 }
 
 /// m:n between Lease and Tenant (mehrere Mieter pro Mietverhältnis).
@@ -619,46 +647,134 @@ enum StatementStatus {
   SENT
 }
 
+/// Anrechnungsbasis der Nebenkostenvorauszahlungen in der Abrechnung.
+enum AdvanceBasis {
+  SOLL // vereinbarte Vorauszahlungen (zeitanteilig)
+  IST // tatsächlich geleistete Vorauszahlungen (NK-Anteil der Ist-Zahlungen)
+}
+
+/// Eine Betriebskostenabrechnung für genau EIN Objekt und einen
+/// Abrechnungszeitraum von höchstens 12 Monaten (§ 556 Abs. 3 BGB).
 model OperatingCostStatement {
   id             String          @id @default(cuid())
   organizationId String
+  propertyId     String
+  title          String? // z.B. "Betriebskostenabrechnung 2025"
   periodYear     Int
-  periodStart    DateTime
-  periodEnd      DateTime
+  periodStart    DateTime // UTC, erster Tag des Zeitraums (inklusive)
+  periodEnd      DateTime // UTC, letzter Tag des Zeitraums (inklusive)
   status         StatementStatus @default(DRAFT)
+
+  // Anrechnung der Vorauszahlungen (Auftraggeber-Entscheidung: IST).
+  advanceBasis AdvanceBasis @default(IST)
+
+  // Heizkostenverordnung: Default-Verbrauchsanteil in Basispunkten (5000 = 50 %).
+  // Gesetzlicher Korridor 50–70 % (§ 7 Abs. 1 / § 8 Abs. 1 HeizkostenV); je
+  // Position überschreibbar. ⚠️ konfigurierbar, vor Freigabe zu prüfen.
+  heatingConsumptionShareBp Int @default(5000)
+
+  finalizedAt DateTime?
+  createdById String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization                      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property     Property                          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   lineItems    OperatingCostStatementItem[]
   results      OperatingCostStatementResult[]
+  itemShares   OperatingCostStatementItemShare[]
+  consumptions OperatingCostConsumption[]
 
   @@index([organizationId])
+  @@index([propertyId])
 }
 
-/// A single cost position within a statement, with its allocation key.
+/// Eine Kostenposition der Abrechnung mit ihrem Umlageschlüssel. Beträge werden
+/// als Snapshot kopiert, damit eine finalisierte Abrechnung unveränderlich
+/// bleibt, auch wenn sich Belege später ändern.
 model OperatingCostStatementItem {
-  id            String        @id @default(cuid())
+  id            String               @id @default(cuid())
   statementId   String
   label         String
-  totalCents    Int // Gesamtkosten der Position
+  category      TransactionCategory? // Herkunfts-Kategorie (Gruppierung/Erläuterung)
+  totalCents    Int // Gesamtkosten der Position (Snapshot)
   allocationKey AllocationKey
+  note          String? // Erläuterung des Verteilerschlüssels (Formalanforderung BGH)
 
-  statement OperatingCostStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  // Heizkostenverordnung: bei Heizung/Warmwasser wird die Position in
+  // Grundkosten (nach Fläche) und Verbrauchskosten (nach erfasstem Verbrauch)
+  // gesplittet. consumptionShareBp überschreibt den Statement-Default.
+  consumptionSplit   Boolean @default(false)
+  consumptionShareBp Int? // Verbrauchsanteil in Basispunkten (null = Statement-Default)
+  sortOrder          Int     @default(0)
+
+  statement    OperatingCostStatement            @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  shares       OperatingCostStatementItemShare[]
+  consumptions OperatingCostConsumption[]
 
   @@index([statementId])
 }
 
-/// Per-lease result of a statement (Nachzahlung > 0 / Guthaben < 0).
+/// Erfasster Verbrauchswert je Einheit für eine Position (Heizung/Warmwasser/
+/// Wasser …). Manuell erfasst — keine Messdienstleister-Anbindung (out of scope).
+/// Die Einheit (kWh, m³ …) ergibt sich aus der Position.
+model OperatingCostConsumption {
+  id             String @id @default(cuid())
+  organizationId String
+  statementId    String
+  itemId         String
+  unitId         String
+  value          Float // erfasster Verbrauch in der Einheit der Position
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  statement    OperatingCostStatement     @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  item         OperatingCostStatementItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  unit         Unit                       @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, unitId])
+  @@index([organizationId])
+  @@index([statementId])
+}
+
+/// Anteil EINER Position, der auf EINEN Mieter (leaseId) bzw. auf den Vermieter
+/// (leaseId = null, z.B. Leerstand) entfällt. Die Summe der Shares je Position
+/// ergibt exakt `totalCents` der Position (verlustfreie Verteilung).
+model OperatingCostStatementItemShare {
+  id             String  @id @default(cuid())
+  organizationId String
+  statementId    String
+  itemId         String
+  leaseId        String? // null = Vermieteranteil (Leerstand / nicht umlegbar)
+  shareCents     Int
+  basisLabel     String? // nachvollziehbare Bezugsgröße, z.B. "72 / 180 m²", "120 / 365 Tage"
+
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  statement    OperatingCostStatement     @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  item         OperatingCostStatementItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([statementId])
+  @@index([itemId])
+}
+
+/// Ergebnis je Mieter (Nachzahlung > 0 / Guthaben < 0).
 model OperatingCostStatementResult {
   id          String @id @default(cuid())
   statementId String
   leaseId     String
 
-  allocatedCents Int // umgelegte Kosten
-  advanceCents   Int // geleistete Vorauszahlungen
-  balanceCents   Int // allocated - advance (positiv = Nachzahlung)
+  allocatedCents   Int // Summe der umgelegten Kostenanteile
+  advanceSollCents Int @default(0) // vereinbarte Vorauszahlungen (zeitanteilig)
+  advanceIstCents  Int @default(0) // tatsächlich geleistete NK-Vorauszahlungen
+  advanceCents     Int // angerechnete Vorauszahlung gemäß advanceBasis
+  balanceCents     Int // allocated - advance (positiv = Nachzahlung, negativ = Guthaben)
+
+  daysActive Int @default(0) // aktive Tage des Mietverhältnisses im Zeitraum
+  periodDays Int @default(0) // Gesamttage des Abrechnungszeitraums
 
   statement OperatingCostStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
 

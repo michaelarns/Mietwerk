@@ -9,6 +9,7 @@ import { PrismaClient } from "../generated/prisma";
 import { generateRentChargesForOrg } from "~/features/rent-payments/charge.service";
 import { recordPayment } from "~/features/rent-payments/payment.service";
 import { runDunningForOrg } from "~/features/rent-payments/dunning.service";
+import { createStatement } from "~/features/operating-cost-statement/statement.service";
 
 const db = new PrismaClient();
 
@@ -175,6 +176,16 @@ async function seedOrganization(opts: {
         operatingCostAdvanceCents: unit.operatingCostAdvanceCents ?? 0,
         depositCents: (unit.baseRentCents ?? 0) * 3,
         leaseTenants: { create: { tenantId: tenant.id } },
+      },
+    });
+
+    // Effektiv-datierte Personenzahl (für den Personen-Umlageschlüssel).
+    await db.leaseOccupancy.create({
+      data: {
+        organizationId: org.id,
+        leaseId: lease.id,
+        personCount: idx === 0 ? 3 : 1,
+        validFrom: new Date(Date.UTC(2022, 0, 1)),
       },
     });
 
@@ -418,6 +429,31 @@ async function seedOrganization(opts: {
     ],
   });
 
+  // ── Vollständige Beispiel-Betriebskostenabrechnung (Phase 4) ──
+  // Für 2025 ganzjährig Soll stellen und voll bezahlen, damit die Abrechnung
+  // realistische IST-Vorauszahlungen anrechnet (→ Guthaben/Nachzahlung).
+  for (let m = 1; m <= 12; m++) {
+    await generateRentChargesForOrg(db, org.id, { periodYear: 2025, periodMonth: m });
+  }
+  const paid2025 = await db.rentPayment.findMany({
+    where: { organizationId: org.id, periodYear: 2025 },
+  });
+  for (const rp of paid2025) {
+    await recordPayment(db, org.id, {
+      leaseId: rp.leaseId,
+      amountCents: rp.targetCents,
+      valueDate: rp.dueDate,
+      reference: "Miete 2025",
+    });
+  }
+  // Abrechnung für das erste Objekt (MFH) anlegen + rechnen (Default: IST).
+  await createStatement(
+    db,
+    org.id,
+    { propertyId: property.id, periodYear: 2025 },
+    { userId: owner.id },
+  );
+
   // Run the dunning twice so overdue/partial items reach a visible Mahnstufe
   // (REMINDER -> 1. Mahnung). Idempotent; uses the org's default policy.
   await runDunningForOrg(db, org.id, now);
@@ -451,7 +487,7 @@ async function main() {
   });
 
   console.log(
-    "✅ Seed complete: 2 Mandanten mit Objekten und Mietverhältnissen.",
+    "✅ Seed complete: 2 Mandanten mit Objekten, Mietverhältnissen und je einer Betriebskostenabrechnung 2025.",
   );
 }
 
