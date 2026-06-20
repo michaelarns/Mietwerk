@@ -6,8 +6,59 @@
  * Run with: npm run db:seed
  */
 import { PrismaClient } from "../generated/prisma";
+import { generateRentChargesForOrg } from "~/features/rent-payments/charge.service";
+import { recordPayment } from "~/features/rent-payments/payment.service";
+import { runDunningForOrg } from "~/features/rent-payments/dunning.service";
 
 const db = new PrismaClient();
+
+/** The last `count` periods (year/month) ending at `now`, oldest first. */
+function lastPeriods(now: Date, count: number) {
+  const out: Array<{ periodYear: number; periodMonth: number }> = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    out.push({ periodYear: d.getUTCFullYear(), periodMonth: d.getUTCMonth() + 1 });
+  }
+  return out;
+}
+
+/**
+ * Create a realistic payment history for a lease: the two oldest months fully
+ * paid, the next partially paid (→ overdue), the current month still open.
+ */
+async function seedPaymentsForLease(
+  organizationId: string,
+  leaseId: string,
+  now: Date,
+) {
+  for (const period of lastPeriods(now, 4)) {
+    await generateRentChargesForOrg(db, organizationId, period);
+  }
+  const rps = await db.rentPayment.findMany({
+    where: { organizationId, leaseId },
+    orderBy: [{ periodYear: "asc" }, { periodMonth: "asc" }],
+  });
+  for (const [idx, rp] of rps.entries()) {
+    if (idx <= 1) {
+      // fully paid
+      await recordPayment(db, organizationId, {
+        leaseId,
+        amountCents: rp.targetCents,
+        valueDate: rp.dueDate,
+        reference: "Miete",
+      });
+    } else if (idx === 2) {
+      // partially paid -> becomes overdue
+      await recordPayment(db, organizationId, {
+        leaseId,
+        amountCents: Math.floor(rp.targetCents / 2),
+        valueDate: rp.dueDate,
+        reference: "Teilzahlung",
+      });
+    }
+    // current month (last) left open
+  }
+}
 
 async function seedOrganization(opts: {
   slug: string;
@@ -22,6 +73,8 @@ async function seedOrganization(opts: {
     update: { name: opts.name },
     create: { slug: opts.slug, name: opts.name, planTier: "STARTER" },
   });
+
+  const now = new Date();
 
   const owner = await db.user.upsert({
     where: { email: opts.ownerEmail },
@@ -120,24 +173,8 @@ async function seedOrganization(opts: {
       },
     });
 
-    // Rent payments for the first three months of 2025
-    const target =
-      (unit.baseRentCents ?? 0) + (unit.operatingCostAdvanceCents ?? 0);
-    for (let month = 1; month <= 3; month++) {
-      await db.rentPayment.create({
-        data: {
-          organizationId: org.id,
-          leaseId: lease.id,
-          periodYear: 2025,
-          periodMonth: month,
-          dueDate: new Date(Date.UTC(2025, month - 1, 3)),
-          targetCents: target,
-          paidCents: month === 3 ? 0 : target,
-          status: month === 3 ? "OPEN" : "PAID",
-          paidAt: month === 3 ? null : new Date(Date.UTC(2025, month - 1, 2)),
-        },
-      });
-    }
+    // Realistic Sollstellung + payment history (paid / partial / open).
+    await seedPaymentsForLease(org.id, lease.id, now);
   }
 
   // A couple of operating-cost transactions
@@ -293,6 +330,11 @@ async function seedOrganization(opts: {
       },
     },
   });
+
+  // Run the dunning twice so overdue/partial items reach a visible Mahnstufe
+  // (REMINDER -> 1. Mahnung). Idempotent; uses the org's default policy.
+  await runDunningForOrg(db, org.id, now);
+  await runDunningForOrg(db, org.id, now);
 
   return org;
 }
