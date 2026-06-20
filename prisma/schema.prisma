@@ -236,6 +236,7 @@ model Unit {
   property     Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   leases       Lease[]
   transactions Transaction[]
+  documents    Document[]
 
   @@index([organizationId])
   @@index([propertyId])
@@ -608,6 +609,7 @@ model Document {
   sizeBytes      Int?
 
   propertyId          String?
+  unitId              String?
   tenantId            String?
   leaseId             String?
   transactionId       String?
@@ -618,6 +620,7 @@ model Document {
 
   organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   property          Property?          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unit              Unit?              @relation(fields: [unitId], references: [id], onDelete: Cascade)
   tenant            Tenant?            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lease             Lease?             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
   transaction       Transaction?       @relation(fields: [transactionId], references: [id], onDelete: Cascade)

@@ -31,6 +31,8 @@ import {
 } from "~/features/tenants-leases/labels";
 import { LeaseDeleteButton } from "~/features/tenants-leases/ui/lease-delete-button";
 import { LeaseFormDialog } from "~/features/tenants-leases/ui/lease-form-dialog";
+import { DocumentsCard } from "~/features/documents/ui/documents-card";
+import { UnitDocumentsButton } from "~/features/documents/ui/unit-documents-button";
 import { formatCents } from "~/lib/money";
 import { formatDate } from "~/lib/date";
 import { api } from "~/trpc/server";
@@ -126,6 +128,15 @@ export default async function PropertyDetailPage({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Dokumente</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DocumentsCard propertyId={property.id} />
+        </CardContent>
+      </Card>
+
       <div>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Einheiten</h2>
@@ -190,6 +201,7 @@ export default async function PropertyDetailPage({
                         </Button>
                       }
                     />
+                    <UnitDocumentsButton unitId={u.id} unitLabel={u.label} />
                     <UnitDeleteButton id={u.id} />
                   </TableCell>
                 </TableRow>
