@@ -12,9 +12,9 @@ export const env = createEnv({
         ? z.string()
         : z.string().optional(),
 
-    // OAuth provider (GitHub). Required so an OAuth login is always available.
-    AUTH_GITHUB_ID: z.string(),
-    AUTH_GITHUB_SECRET: z.string(),
+    // OAuth provider (GitHub). Optional – magic link works without it.
+    AUTH_GITHUB_ID: z.string().optional(),
+    AUTH_GITHUB_SECRET: z.string().optional(),
 
     // Email (magic link) provider via SMTP.
     EMAIL_SERVER_HOST: z.string().default("localhost"),
