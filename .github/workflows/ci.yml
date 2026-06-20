@@ -99,6 +99,9 @@ jobs:
       - name: Apply database schema
         run: npm run db:push
 
+      - name: Seed demo data (owner used by the E2E login)
+        run: npm run db:seed
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 

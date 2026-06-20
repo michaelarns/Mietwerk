@@ -30,6 +30,9 @@ declare module "next-auth" {
  * @see https://authjs.dev/getting-started
  */
 export const authConfig = {
+  // Self-hosted: trust the deploy host (Auth.js v5 only auto-trusts in dev).
+  // Without this, production (`next start`) rejects requests with UntrustedHost.
+  trustHost: true,
   providers: [
     GitHubProvider({
       clientId: env.AUTH_GITHUB_ID,
