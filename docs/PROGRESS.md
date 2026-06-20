@@ -8,7 +8,7 @@
 |---|---|---|
 | 0 | Fundament: Plan, Architektur, Scaffold, Datenmodell, Auth & Multi-Tenancy, CI, Seed | ✅ abgeschlossen (Review-Gate) |
 | 1 | Stammdaten: `properties`, `tenants-leases` (Kern-CRUD) | ✅ abgeschlossen (Review-Gate) |
-| 2 | Geldfluss: `rent-payments` inkl. Mahnwesen | offen |
+| 2 | Geldfluss: `rent-payments` inkl. Mahnwesen | ✅ abgeschlossen (Review-Gate offen) |
 | 3 | Buchhaltung: `costs-accounting` + `tax-afa`, Anlage-V-Export | offen |
 | 4 | Abrechnung: `operating-cost-statement` Engine + PDF (Herzstück) | offen |
 | 5 | Auswertung: `dashboard-analytics` | offen |
@@ -127,3 +127,76 @@
    verifizieren** vor Implementierung.
 4. Worker: erste echte Jobs via pg-boss (Sollstellung, Fristen) — Hosting-
    Entscheidung dann fällig.
+
+---
+
+## Phase 2 — Geldfluss (`rent-payments`) ✅ (Review-Gate offen)
+
+### Gebaut
+
+- **Schema:** `Payment` + `PaymentAllocation` (Ist-Eingänge, Guthaben),
+  `BankImport` + `BankTransaction` (Import-Staging, idempotent via `dedupeHash`),
+  `DunningPolicy` + `DunningPolicyLevel` (konfigurierbar), `Dunning` erweitert
+  (`interestCents`, `channel`, `recipient`, `body`, `@@unique(rentPaymentId,level)`).
+- **2.1 Sollstellung:** `charge-rules.ts` (rein, getestet) — **tagesgenaue
+  Proration** (actual/actual), Fälligkeit = 3. Werktag; Service idempotent
+  (`createMany` + `skipDuplicates`).
+- **2.2 Zahlungen:** FIFO-Zuordnung (Teil-/Voll-/Überzahlung → Guthaben),
+  Status-Recompute, Zahlungshistorie.
+- **2.3 CSV-Import:** Parser (Delimiter/Spalten-Erkennung, dt. Beträge/Daten) +
+  Zuordnungsvorschlag (Betrag/Zweck/Name), Vorschau → Bestätigung → Verbuchung;
+  idempotent. CAMT.053 bewusst verschoben (nur CSV).
+- **2.4 Mahnwesen:** monotone Zustandsmaschine (Erinnerung → 1. → 2. Mahnung),
+  konfigurierbare Schwellen/Sätze, Ausgabe als E-Mail/Text an **Mailpit** (kein
+  PDF). Ausgleichende Zahlung schließt den Lauf. Jeder Schritt ins `AuditLog`.
+- **2.5 pg-boss:** Worker als echter Runner (eigenes Schema `pgboss`), zwei
+  Singleton-Queues + Cron (Sollstellung monatlich, Mahnlauf täglich,
+  Europe/Berlin), idempotent; manuell über tRPC auslösbar. ADR 0007.
+- **2.6 Ansichten:** `/payments` (offene Posten + Überfällig + Aktionen),
+  `/payments/import`, `/payments/leases/[id]` (Soll/Ist, Historie, Guthaben,
+  Mahnungen). Nav „Zahlungen“.
+- **Seed:** je Lease 4 Monate Soll + Zahlungen (bezahlt/teilbezahlt/überfällig)
+  + Mahnungen (Erinnerung/1. Mahnung) — über die echten Services.
+
+### Verifiziert
+
+- `lint`, `typecheck`, `test` (**84 Tests**, davon Unit + Integration gegen
+  PostgreSQL) ✅; `SKIP_ENV_VALIDATION=1 build` ✅; `db:push` + `db:seed` ✅.
+- **Cross-Tenant**: erweitert um die neuen Services **und** die Jobs (A sieht/
+  ändert/mahnt B nie).
+- Worker-Boot verifiziert: `pgboss`-Schema getrennt vom App-Schema, Cron
+  registriert (Europe/Berlin).
+- E2E-Spec (Soll → Teilzahlung → überfällig → Mahnlauf/Erinnerung) geschrieben;
+  läuft in CI. **Hinweis:** im Sandbox-Container sind Docker-Registry und
+  Playwright-Browser-Download gesperrt → lokal kein Mailpit/Browser; daher hier
+  per Build + Tests + DB-Checks verifiziert.
+
+### Annahmen — **rechtlich, zur Freigabe markiert**
+
+- **Proration:** tagesgenau (actual/actual) — bestätigt.
+- **Mahnstufen:** 3 Stufen (Erinnerung → 1. → 2. Mahnung), `FINAL` reserviert —
+  bestätigt. Anzahl ist geschäftliche Konvention, kein Gesetz.
+- **Verzug:** tritt bei der Miete mit Fälligkeit ein (§ 286 Abs. 2 Nr. 1
+  i.V.m. § 556b Abs. 1 BGB), ohne separate Mahnung. Fälligkeit = 3. Werktag
+  (Samstag kein Werktag, Feiertage nicht berücksichtigt — Vereinfachung).
+- **Verzugszinsen:** Basiszinssatz (§ 247 BGB, **variabel**) + 5 PP für
+  Verbraucher (§ 288 Abs. 1 BGB), taggenau actual/365. **Standardmäßig AUS**;
+  `baseRatePercent` muss vor Aktivierung gepflegt werden.
+- **Mahngebühren:** nur als tatsächlicher Verzugsschaden ansetzbar (§§ 280, 286
+  BGB), **keine** freie Pauschale; die den Verzug begründende erste Mahnung ist
+  regelmäßig nicht erstattungsfähig. **Standardmäßig AUS**, je Stufe konfigurierbar.
+- Schwellen/Sätze liegen in `DunningPolicy` (org-weit) und sind nach Prüfung
+  anpassbar.
+
+### Bewusst nicht gebaut (spätere Phasen)
+
+- PDF-Mahnschreiben (Phase 4), CAMT.053 (späteres Inkrement), Verzugszinsen-
+  Compounding, Kündigung wegen Zahlungsverzug, SEPA/Payment-Provider, FinTS/HBCI.
+- Allgemeiner Fristenmonitor & Benachrichtigungssystem (Phase 7) — pg-boss dient
+  hier nur Sollstellung & Mahnwesen.
+
+### Offene Punkte / vor Freigabe
+
+- Rechtliche Annahmen oben **prüfen/freigeben** (insb. Verzugszinssatz-Defaults,
+  Werktags-/Feiertagslogik der Fälligkeit).
+- pg-boss-Worker-Deployment bei serverlosem Hosting (ADR 0004/0007) bleibt offen.
