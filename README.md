@@ -20,7 +20,9 @@ Zwei Befehle genügen:
 ```bash
 # 1. Einmalig: Abhängigkeiten + .env
 npm install
-cp .env.example .env          # Werte ausfüllen (AUTH_SECRET via `npx auth secret`)
+cp .env.example .env          # AUTH_SECRET via `npx auth secret` setzen.
+                              # GitHub-OAuth ist optional (Magic-Link genügt);
+                              # ohne MinIO: STORAGE_DRIVER="fs" setzen.
 
 # 2. Dienste hoch (PostgreSQL 5432, Mailpit 8025, MinIO 9000/9001)
 npm run dev:up                # = docker compose up -d
