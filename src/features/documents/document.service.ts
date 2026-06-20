@@ -47,6 +47,30 @@ export async function assertUnitOwned(
   if (!found) throw notFound("Einheit");
 }
 
+export async function assertTransactionOwned(
+  db: PrismaClient,
+  organizationId: string,
+  transactionId: string,
+) {
+  const found = await db.transaction.findFirst({
+    where: { id: transactionId, organizationId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!found) throw notFound("Beleg/Kostenposition");
+}
+
+export function listTransactionDocuments(
+  db: PrismaClient,
+  organizationId: string,
+  transactionId: string,
+) {
+  return db.document.findMany({
+    where: { organizationId, transactionId, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    select: documentSelect,
+  });
+}
+
 export function listPropertyDocuments(
   db: PrismaClient,
   organizationId: string,
@@ -82,6 +106,7 @@ export function createDocument(
     sizeBytes?: number;
     propertyId?: string;
     unitId?: string;
+    transactionId?: string;
   },
 ) {
   return db.document.create({

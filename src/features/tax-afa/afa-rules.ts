@@ -159,6 +159,12 @@ export interface DepreciationEntry {
   amountCents: number;
 }
 
+/** AfA-Betrag eines Jahres (Aggregat über alle Pläne eines Objekts). */
+export interface AfaYearAmount {
+  year: number;
+  amountCents: number;
+}
+
 /** Anteil des ersten Jahres (monatsgenau): ab Monat `startMonth` bis Dezember. */
 function firstYearFactor(startMonth: number): number {
   const m = Math.min(12, Math.max(1, startMonth));

@@ -1,7 +1,9 @@
 import { organizationRouter } from "~/features/auth-org/organization.router";
+import { costRouter } from "~/features/costs-accounting/costs.router";
 import { documentRouter } from "~/features/documents/document.router";
 import { propertyRouter } from "~/features/properties/property.router";
 import { rentPaymentRouter } from "~/features/rent-payments/rent-payments.router";
+import { taxAfaRouter } from "~/features/tax-afa/tax-afa.router";
 import {
   leaseRouter,
   tenantRouter,
@@ -20,6 +22,8 @@ export const appRouter = createTRPCRouter({
   lease: leaseRouter,
   document: documentRouter,
   rentPayment: rentPaymentRouter,
+  cost: costRouter,
+  taxAfa: taxAfaRouter,
 });
 
 // export type definition of API

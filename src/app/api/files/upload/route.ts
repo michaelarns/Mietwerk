@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { DocumentType } from "../../../../../generated/prisma";
 import {
   assertPropertyOwned,
+  assertTransactionOwned,
   assertUnitOwned,
   createDocument,
 } from "~/features/documents/document.service";
@@ -27,6 +28,7 @@ export async function POST(req: Request) {
     const file = form.get("file");
     const propertyId = form.get("propertyId");
     const unitId = form.get("unitId");
+    const transactionId = form.get("transactionId");
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Keine Datei." }, { status: 400 });
@@ -36,9 +38,13 @@ export async function POST(req: Request) {
         status: 413,
       });
     }
-    if (typeof propertyId !== "string" && typeof unitId !== "string") {
+    if (
+      typeof propertyId !== "string" &&
+      typeof unitId !== "string" &&
+      typeof transactionId !== "string"
+    ) {
       return NextResponse.json(
-        { error: "propertyId oder unitId erforderlich." },
+        { error: "propertyId, unitId oder transactionId erforderlich." },
         { status: 400 },
       );
     }
@@ -49,6 +55,9 @@ export async function POST(req: Request) {
     }
     if (typeof unitId === "string") {
       await assertUnitOwned(db, ctx.organizationId, unitId);
+    }
+    if (typeof transactionId === "string") {
+      await assertTransactionOwned(db, ctx.organizationId, transactionId);
     }
 
     const mime = file.type || "application/octet-stream";
@@ -64,6 +73,7 @@ export async function POST(req: Request) {
       sizeBytes: file.size,
       propertyId: typeof propertyId === "string" ? propertyId : undefined,
       unitId: typeof unitId === "string" ? unitId : undefined,
+      transactionId: typeof transactionId === "string" ? transactionId : undefined,
     });
 
     return NextResponse.json({ id: doc.id }, { status: 201 });
