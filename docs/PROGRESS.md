@@ -9,7 +9,7 @@
 | 0 | Fundament: Plan, Architektur, Scaffold, Datenmodell, Auth & Multi-Tenancy, CI, Seed | ✅ abgeschlossen (Review-Gate) |
 | 1 | Stammdaten: `properties`, `tenants-leases` (Kern-CRUD) | ✅ abgeschlossen (Review-Gate) |
 | 2 | Geldfluss: `rent-payments` inkl. Mahnwesen | ✅ abgeschlossen (Review-Gate offen) |
-| 3 | Buchhaltung: `costs-accounting` + `tax-afa`, Anlage-V-Export | 🚧 Backend + Rechenlogik ✅, UI/E2E offen |
+| 3 | Buchhaltung: `costs-accounting` + `tax-afa`, Anlage-V-Export | ✅ Backend + Rechenlogik + UI + E2E (Review-Gate offen) |
 | 4 | Abrechnung: `operating-cost-statement` Engine + PDF (Herzstück) | offen |
 | 5 | Auswertung: `dashboard-analytics` | offen |
 | 6 | KI: `ai-assistant` | offen |
@@ -245,11 +245,34 @@ Steuerliche Regeln, Quellen und freigegebene Defaults: **ADR 0009**.
 - **§ 11 Kassenbasis** ohne automatische 10-Tage-Regel (nur Hinweis).
 - **§ 35a:** bei Vermietung i.d.R. Werbungskosten → nur Hinweis.
 
-### Offen (nächste Session, frischer Stand auf diesem Branch)
+### Gebaut (UI 3.7 + E2E) ✅
 
-- **3.7 UI:** Kostenliste + Beleg-Erfassung (Dialog, Upload, Kategorie-Vorschlag,
-  15 %-Warnung), AfA-Übersicht je Objekt (Plan anlegen/löschen), Anlage-V-Vorschau
-  je Objekt/Jahr + CSV-Download; Navigation.
-- **E2E (Playwright):** Beleg erfassen+kategorisieren → AfA-Plan → Anlage-V-Vorschau
-  zeigt korrekte Summen.
-- Danach Review-Gate (Annahmen-Freigabe), dann Phase 4.
+- **3.7 Kosten-UI (`/costs`):** gefilterte Kostenliste (Objekt/Jahr/Kategorie über
+  URL-Query, server-seitig geladen), Beleg-Erfassungs-Dialog mit regelbasiertem
+  **Kategorie-Vorschlag**, §-82b-Verteilungsfeldern und optionalem **Beleg-Upload
+  über den Storage-Port** (`/api/files/upload`, `transactionId`). **15-%-Warnung**
+  (anschaffungsnahe HK) als Banner je gewähltem Objekt. Belegjournal-CSV-Export.
+- **3.7 Steuer/AfA-UI (`/tax`, `/tax/[propertyId]`):** Objektauswahl; je Objekt
+  AfA-Pläne mit berechneten Jahresbeträgen, **Plan anlegen** (Vorschlag-Prefill:
+  Satz/Basis aus Stammdaten, Degressiv-Eignungshinweis) und **löschen**;
+  **Anlage-V-Vorschau** mit Veranlagungsjahr-Auswahl (Einnahmen − Werbungskosten −
+  AfA, Kassenbasis-Hinweis) und **CSV-Download** für den Steuerberater.
+- **Navigation:** `app-nav.tsx` um „Kosten" und „Steuer & AfA" ergänzt.
+- **Muster wiederverwendet:** Server-Components/tRPC fürs Lesen (kein
+  `useEffect`-Fetching; Kategorie-Vorschlag über `utils.*.fetch`), shadcn/ui
+  Tabellen/Dialoge/Selects/Toasts, Geld in Cent ↔ €-Anzeige, Datum Europe/Berlin,
+  `orgProcedure` respektiert, `label`↔`input` für a11y/Testbarkeit verknüpft.
+
+### Verifiziert (UI)
+
+- `lint`, `typecheck`, `test` (**135 Tests**) ✅; `SKIP_ENV_VALIDATION=1 build` ✅
+  (neue Routen `/costs`, `/tax`, `/tax/[propertyId]` kompilieren).
+- **E2E-Spec** `e2e/costs-tax-flow.spec.ts` (Beleg erfassen + Kategorisierung →
+  AfA-Plan anlegen → Anlage-V-Vorschau prüft Erhaltungsaufwand, AfA und Summe
+  Werbungskosten). **Hinweis:** Playwright-Browser-Download im Sandbox-Container
+  gesperrt → die Spec läuft in CI; lokal über Build + Suite + Typecheck verifiziert.
+
+### Offen
+
+- Review-Gate (steuerliche Annahmen-Freigabe, ADR 0009), danach Phase 4 auf
+  diesem Branch. Merge nach `main` erst nach ausdrücklicher Freigabe (mit Phase 4).

@@ -23,7 +23,10 @@ Erhaltungs-/Herstellungsaufwand inkl. anschaffungsnaher HK, und die
 - `anlage-v.ts` — **rein**: Kassenbasis-Aggregation (Einnahmen − WK − AfA).
 - `costs.service.ts` / `queries.service.ts` — Data Access, org-gescoped.
 - `export.service.ts` — CSV (Anlage V + Belegjournal).
-- `costs.router.ts` (`cost`), `labels.ts`, `ui/`.
+- `costs.router.ts` (`cost`), `labels.ts`.
+- `ui/` — `record-cost-dialog` (Beleg erfassen: Kategorie-Vorschlag, §82b,
+  Upload via Storage-Port), `cost-filters` (URL-gesteuert), `costs-csv-button`,
+  `anlage-v-panel` (Jahr-Auswahl + Vorschau + CSV). Seiten: `app/(app)/costs`.
 
 ## Lokale Konventionen
 

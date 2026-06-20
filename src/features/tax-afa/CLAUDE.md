@@ -23,7 +23,9 @@ Anschaffungsnebenkosten. Plus § 35a-Hinweis. Steuerliche Regeln: ADR 0009.
 - `paragraph35a-rules.ts` — **rein**: Hinweis (keine Berechnung).
 - `afa.service.ts` — Data Access; org-gescoped; `getAfaEntriesForProperty`
   (von `costs-accounting`/Anlage V konsumiert), `suggest*`, Audit.
-- `tax-afa.router.ts` (`taxAfa`).
+- `tax-afa.router.ts` (`taxAfa`), `labels.ts` (Methoden-Labels).
+- `ui/` — `create-schedule-dialog` (Plan anlegen mit Vorschlag-Prefill),
+  `delete-schedule-button`. Seiten: `app/(app)/tax` + `app/(app)/tax/[propertyId]`.
 
 ## Lokale Konventionen
 
