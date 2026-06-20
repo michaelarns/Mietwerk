@@ -24,6 +24,16 @@ import {
   softDeleteLease,
   softDeleteTenant,
 } from "~/features/tenants-leases/tenants-leases.service";
+import {
+  generateRentChargesForOrg,
+  listRentPaymentsForLease,
+} from "~/features/rent-payments/charge.service";
+import { recordPayment } from "~/features/rent-payments/payment.service";
+import { runDunningForOrg } from "~/features/rent-payments/dunning.service";
+import {
+  getLeasePaymentOverview,
+  listOpenItems,
+} from "~/features/rent-payments/queries.service";
 import { db } from "~/server/db";
 
 // Gate on DATABASE_URL so `npm test` stays green where no DB is available.
@@ -60,10 +70,20 @@ async function seedOrg(tag: string) {
     data: {
       organizationId: org.id,
       unitId: unit.id,
-      startDate: new Date(),
+      startDate: new Date(Date.UTC(2024, 0, 1)),
       baseRentCents: 50000,
+      operatingCostAdvanceCents: 10000,
       leaseTenants: { create: { tenantId: tenant.id } },
     },
+  });
+  // A past-due receivable so the dunning/open-item isolation can be exercised.
+  await generateRentChargesForOrg(db, org.id, {
+    periodYear: 2025,
+    periodMonth: 1,
+  });
+  const rp = await db.rentPayment.findFirstOrThrow({
+    where: { organizationId: org.id, leaseId: lease.id },
+    select: { id: true },
   });
   return {
     orgId: org.id,
@@ -72,6 +92,7 @@ async function seedOrg(tag: string) {
     unitId: unit.id,
     tenantId: tenant.id,
     leaseId: lease.id,
+    rentPaymentId: rp.id,
   };
 }
 
@@ -162,5 +183,42 @@ describe("org-scoped services isolate mandanten", () => {
     await expect(
       listLeasesForProperty(db, A.orgId, B.propertyId),
     ).resolves.toHaveLength(0);
+  });
+});
+
+describe("rent-payments services isolate mandanten", () => {
+  itDb("A sees its own open items but never B's", async () => {
+    const items = await listOpenItems(db, A.orgId, undefined);
+    const ids = items.map((i) => i.id);
+    expect(ids).toContain(A.rentPaymentId);
+    expect(ids).not.toContain(B.rentPaymentId);
+  });
+
+  itDb("A cannot list B's receivables or read B's lease overview", async () => {
+    await expect(
+      listRentPaymentsForLease(db, A.orgId, B.leaseId),
+    ).resolves.toHaveLength(0);
+    await expect(
+      getLeasePaymentOverview(db, A.orgId, B.leaseId),
+    ).rejects.toThrow();
+  });
+
+  itDb("A cannot record a payment against B's lease", async () => {
+    await expect(
+      recordPayment(db, A.orgId, {
+        leaseId: B.leaseId,
+        amountCents: 1000,
+        valueDate: new Date(),
+      }),
+    ).rejects.toThrow();
+  });
+
+  itDb("A's dunning run never dunns B's overdue receivable", async () => {
+    const now = new Date(Date.UTC(2025, 5, 1));
+    await runDunningForOrg(db, A.orgId, now);
+    const bDunnings = await db.dunning.count({
+      where: { rentPaymentId: B.rentPaymentId },
+    });
+    expect(bDunnings).toBe(0);
   });
 });
