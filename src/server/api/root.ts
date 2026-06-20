@@ -1,4 +1,5 @@
 import { organizationRouter } from "~/features/auth-org/organization.router";
+import { propertyRouter } from "~/features/properties/property.router";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 
 /**
@@ -8,6 +9,7 @@ import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
  */
 export const appRouter = createTRPCRouter({
   organization: organizationRouter,
+  property: propertyRouter,
 });
 
 // export type definition of API

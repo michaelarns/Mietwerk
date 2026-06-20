@@ -17,6 +17,26 @@ export function eurosToCents(euros: number): Cents {
   return Math.round(euros * 100);
 }
 
+/**
+ * Parse a Euro string from a form field into integer Cent. Accepts German
+ * ("1234,56") and plain ("1234.56") decimals. Returns `null` for empty input
+ * and `undefined` for unparseable input (so callers can flag a validation error).
+ */
+export function parseEuroInput(input: string): Cents | null | undefined {
+  const trimmed = input.trim();
+  if (trimmed === "") return null;
+  const normalized = trimmed.replace(/\s/g, "").replace(",", ".");
+  const value = Number(normalized);
+  if (!Number.isFinite(value)) return undefined;
+  return eurosToCents(value);
+}
+
+/** Render integer Cent as a plain Euro string for a form input, e.g. "780.00". */
+export function centsToEuroInput(cents: Cents | null | undefined): string {
+  if (cents === null || cents === undefined) return "";
+  return (cents / 100).toFixed(2);
+}
+
 /** Convert integer Cent to a Euro number (for display math only). */
 export function centsToEuros(cents: Cents): number {
   return cents / 100;
