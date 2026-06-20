@@ -15,8 +15,6 @@ const PERIOD = {
   start: new Date(Date.UTC(YEAR, 0, 1)),
   end: new Date(Date.UTC(YEAR, 11, 31)),
 };
-const PERIOD_DAYS = 365;
-
 function unit(id: string, areaSqm: number): EngineUnit {
   return { id, areaSqm };
 }

@@ -296,14 +296,14 @@ function allocateItem(
   const byLease = new Map<string, { shareCents: number; basisLabel: string }>();
 
   const addShare = (seg: Segment | null, cents: number, label: string) => {
-    if (cents === 0 && seg && seg.leaseId === null) return;
-    if (!seg || seg.leaseId === null) {
+    const leaseId = seg?.leaseId ?? null;
+    if (leaseId === null) {
       landlordCents += cents;
       return;
     }
-    const prev = byLease.get(seg.leaseId);
+    const prev = byLease.get(leaseId);
     if (prev) prev.shareCents += cents;
-    else byLease.set(seg.leaseId, { shareCents: cents, basisLabel: label });
+    else byLease.set(leaseId, { shareCents: cents, basisLabel: label });
   };
 
   if (item.consumptionSplit) {
