@@ -1,0 +1,37 @@
+# CLAUDE.md — Slice `<slice-name>`
+
+> Vorlage. Beim Anlegen eines neuen Slice nach `src/features/<slice>/CLAUDE.md`
+> kopieren und ausfüllen. Schlank halten — globale Regeln stehen in der Root-
+> `CLAUDE.md`, hier nur Slice-Spezifisches.
+
+## Zweck
+
+Ein bis zwei Sätze: Welche Fachdomäne deckt dieser Slice ab?
+
+## Hauptentitäten (Prisma)
+
+- `Entity1`, `Entity2`, … — und ihre Beziehung zu `organizationId`.
+
+## Dateien
+
+- `<slice>.router.ts` — tRPC-Router (nur Verdrahtung + I/O-Validierung).
+- `<slice>.service.ts` — Data Access Layer; nimmt `organizationId` explizit.
+- `<slice>.schema.ts` — Zod-Schemas + abgeleitete Typen.
+- `ui/` — slice-spezifische Komponenten (optional).
+
+## Lokale Konventionen
+
+- Alle Procedures bauen auf `orgProcedure` / `orgWriteProcedure` auf
+  (Mandantentrennung). Niemals direkt `protectedProcedure` für Tenant-Daten.
+- Geldfelder als `*Cents` (Integer). Beträge nur über `~/lib/money` verarbeiten.
+- Datumswerte UTC; Rendering über `~/lib/date`.
+- Personenbezogene Löschungen als Soft-Delete (`deletedAt`).
+- Sensible Aktionen schreiben einen `AuditLog`-Eintrag.
+
+## Fachlich kritische Logik (Testpflicht)
+
+- Liste der Funktionen, die vor „fertig“ Unit-Tests brauchen.
+
+## Offene Punkte / zu verifizieren
+
+- Rechtliche/steuerliche Annahmen klar markieren.

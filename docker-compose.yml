@@ -1,0 +1,33 @@
+# Local development services for Mietwerk.
+# Start with: docker compose up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mietwerk-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mietwerk
+    ports:
+      - "5432:5432"
+    volumes:
+      - mietwerk-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mietwerk"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Local SMTP catcher for the NextAuth email (magic link) provider.
+  # Web UI available at http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mietwerk-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+
+volumes:
+  mietwerk-postgres-data:

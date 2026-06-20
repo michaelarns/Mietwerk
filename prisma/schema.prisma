@@ -1,0 +1,645 @@
+// Mietwerk – Prisma schema (Phase 0 draft)
+// Conventions enforced here:
+//  - Money is stored as Int in Cent (suffix `Cents`), never as Float.
+//  - All timestamps are stored in UTC (rendered in Europe/Berlin in the UI).
+//  - Every tenant-owned entity carries `organizationId` for strict multi-tenancy.
+//  - Personal / personenbezogene entities use Soft-Delete via `deletedAt`.
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================================
+// AUTH (NextAuth / Auth.js – shapes required by @auth/prisma-adapter)
+// =====================================================================
+
+model Account {
+  id                       String  @id @default(cuid())
+  userId                   String
+  type                     String
+  provider                 String
+  providerAccountId        String
+  refresh_token            String?
+  access_token             String?
+  expires_at               Int?
+  token_type               String?
+  scope                    String?
+  id_token                 String?
+  session_state            String?
+  user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refresh_token_expires_in Int?
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime? // Soft-Delete (personenbezogen)
+
+  accounts    Account[]
+  sessions    Session[]
+  memberships Membership[]
+  auditLogs   AuditLog[]
+}
+
+// =====================================================================
+// TENANCY: Organization (Mandant), Membership, Invitation
+// =====================================================================
+
+enum UserRole {
+  OWNER
+  MANAGER
+  ACCOUNTANT_READONLY
+}
+
+enum PlanTier {
+  FREE // 1 Einheit
+  STARTER // bis 5
+  PRO // bis 20
+  BUSINESS // bis 50
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+/// The tenant boundary. Every domain row belongs to exactly one Organization.
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Subscription / Billing (Stripe – finalisiert in Phase 8)
+  planTier             PlanTier           @default(FREE)
+  subscriptionStatus   SubscriptionStatus @default(TRIALING)
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  currentPeriodEnd     DateTime?
+
+  memberships             Membership[]
+  invitations             Invitation[]
+  properties              Property[]
+  tenants                 Tenant[]
+  leases                  Lease[]
+  rentPayments            RentPayment[]
+  transactions            Transaction[]
+  operatingCostStatements OperatingCostStatement[]
+  depreciationSchedules   DepreciationSchedule[]
+  maintenanceTickets      MaintenanceTicket[]
+  contractors             Contractor[]
+  dunnings                Dunning[]
+  documents               Document[]
+  auditLogs               AuditLog[]
+  units                   Unit[]
+}
+
+/// Join between User and Organization, carrying the role within that org.
+model Membership {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           UserRole @default(OWNER)
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+/// Invitation flow for adding teammates to an organization.
+model Invitation {
+  id             String           @id @default(cuid())
+  organizationId String
+  email          String
+  role           UserRole         @default(MANAGER)
+  token          String           @unique
+  status         InvitationStatus @default(PENDING)
+  invitedById    String?
+  expiresAt      DateTime
+  createdAt      DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+}
+
+// =====================================================================
+// PROPERTIES & UNITS
+// =====================================================================
+
+enum PropertyType {
+  MEHRFAMILIENHAUS
+  EINFAMILIENHAUS
+  EIGENTUMSWOHNUNG
+  GEWERBE
+  GEMISCHT
+}
+
+model Property {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  type           PropertyType @default(MEHRFAMILIENHAUS)
+
+  // Adresse
+  street     String
+  houseNo    String
+  postalCode String
+  city       String
+  country    String @default("DE")
+
+  buildYear Int?
+
+  // AfA-relevante Stammdaten (Geldbeträge in Cent)
+  purchaseDate       DateTime?
+  purchasePriceCents Int? // Gesamtkaufpreis
+  landValueCents     Int? // Grundstücksanteil (nicht abschreibbar)
+  buildingValueCents Int? // Gebäudeanteil (Bemessungsgrundlage AfA)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  units                 Unit[]
+  transactions          Transaction[]
+  depreciationSchedules DepreciationSchedule[]
+  maintenanceTickets    MaintenanceTicket[]
+  documents             Document[]
+
+  @@index([organizationId])
+}
+
+model Unit {
+  id             String  @id @default(cuid())
+  organizationId String
+  propertyId     String
+  label          String // z.B. "Wohnung 2 OG links"
+  floor          String?
+  rooms          Float?
+  areaSqm        Float? // Wohnfläche in m²
+
+  // Aktuelle Soll-Konditionen (Geldbeträge in Cent)
+  baseRentCents             Int? // Kaltmiete
+  operatingCostAdvanceCents Int? // Nebenkostenvorauszahlung
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property     Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  leases       Lease[]
+  transactions Transaction[]
+
+  @@index([organizationId])
+  @@index([propertyId])
+}
+
+// =====================================================================
+// TENANTS & LEASES
+// =====================================================================
+
+model Tenant {
+  id             String  @id @default(cuid())
+  organizationId String
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft-Delete (personenbezogen)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leaseTenants LeaseTenant[]
+  documents    Document[]
+
+  @@index([organizationId])
+}
+
+enum LeaseType {
+  STANDARD
+  STAFFELMIETE
+  INDEXMIETE
+}
+
+model Lease {
+  id             String    @id @default(cuid())
+  organizationId String
+  unitId         String
+  type           LeaseType @default(STANDARD)
+  startDate      DateTime
+  endDate        DateTime? // null = unbefristet
+
+  // Konditionen (Geldbeträge in Cent)
+  baseRentCents             Int // Kaltmiete
+  operatingCostAdvanceCents Int @default(0) // Nebenkostenvorauszahlung
+  depositCents              Int @default(0) // Kaution
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  unit         Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  leaseTenants LeaseTenant[]
+  rentPayments RentPayment[]
+  documents    Document[]
+
+  @@index([organizationId])
+  @@index([unitId])
+}
+
+/// m:n between Lease and Tenant (mehrere Mieter pro Mietverhältnis).
+model LeaseTenant {
+  leaseId  String
+  tenantId String
+  lease    Lease  @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([leaseId, tenantId])
+}
+
+// =====================================================================
+// RENT PAYMENTS & DUNNING
+// =====================================================================
+
+enum RentPaymentStatus {
+  OPEN
+  PARTIAL
+  PAID
+  OVERDUE
+  WAIVED
+}
+
+model RentPayment {
+  id             String   @id @default(cuid())
+  organizationId String
+  leaseId        String
+  dueDate        DateTime // Sollstellungsdatum
+  periodYear     Int
+  periodMonth    Int // 1-12
+
+  // Geldbeträge in Cent
+  targetCents Int // Sollstellung
+  paidCents   Int               @default(0) // Ist
+  paidAt      DateTime?
+  status      RentPaymentStatus @default(OPEN)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lease        Lease        @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  dunnings     Dunning[]
+
+  @@unique([leaseId, periodYear, periodMonth])
+  @@index([organizationId])
+}
+
+enum DunningLevel {
+  REMINDER // Zahlungserinnerung
+  FIRST // 1. Mahnung
+  SECOND // 2. Mahnung
+  FINAL // letzte Mahnung / Inkasso-Androhung
+}
+
+model Dunning {
+  id             String       @id @default(cuid())
+  organizationId String
+  rentPaymentId  String
+  level          DunningLevel
+  sentAt         DateTime?
+  feeCents       Int          @default(0) // Mahngebühr
+  createdAt      DateTime     @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rentPayment  RentPayment  @relation(fields: [rentPaymentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([rentPaymentId])
+}
+
+// =====================================================================
+// COSTS / ACCOUNTING (Belege & Transaktionen)
+// =====================================================================
+
+enum TransactionCategory {
+  GRUNDSTEUER
+  VERSICHERUNG
+  HEIZUNG
+  WASSER
+  ABWASSER
+  MUELL
+  HAUSREINIGUNG
+  HAUSMEISTER
+  STROM_ALLGEMEIN
+  AUFZUG
+  GARTENPFLEGE
+  SCHORNSTEINFEGER
+  INSTANDHALTUNG
+  VERWALTUNG
+  FINANZIERUNGSZINSEN
+  SONSTIGE
+}
+
+model Transaction {
+  id             String              @id @default(cuid())
+  organizationId String
+  propertyId     String?
+  unitId         String?
+  bookingDate    DateTime
+  category       TransactionCategory @default(SONSTIGE)
+  description    String?
+
+  amountCents    Int // Betrag in Cent (positiv = Ausgabe)
+  isAllocatable  Boolean @default(false) // umlagefähig (BetrKV)
+  isAfaRelevant  Boolean @default(false) // AfA-relevant (Anschaffung/Herstellung)
+  isLaborCost35a Boolean @default(false) // § 35a EStG Arbeitskostenanteil
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property     Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  unit         Unit?        @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  documents    Document[]
+
+  @@index([organizationId])
+  @@index([propertyId])
+}
+
+// =====================================================================
+// OPERATING COST STATEMENT (Betriebskostenabrechnung)
+// =====================================================================
+
+enum AllocationKey {
+  WOHNFLAECHE // nach Quadratmeter
+  PERSONEN // nach Personenzahl
+  EINHEITEN // nach Anzahl Einheiten
+  VERBRAUCH // nach gemessenem Verbrauch
+  MITEIGENTUMSANTEIL // nach MEA
+}
+
+enum StatementStatus {
+  DRAFT
+  FINALIZED
+  SENT
+}
+
+model OperatingCostStatement {
+  id             String          @id @default(cuid())
+  organizationId String
+  periodYear     Int
+  periodStart    DateTime
+  periodEnd      DateTime
+  status         StatementStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lineItems    OperatingCostStatementItem[]
+  results      OperatingCostStatementResult[]
+
+  @@index([organizationId])
+}
+
+/// A single cost position within a statement, with its allocation key.
+model OperatingCostStatementItem {
+  id            String        @id @default(cuid())
+  statementId   String
+  label         String
+  totalCents    Int // Gesamtkosten der Position
+  allocationKey AllocationKey
+
+  statement OperatingCostStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@index([statementId])
+}
+
+/// Per-lease result of a statement (Nachzahlung > 0 / Guthaben < 0).
+model OperatingCostStatementResult {
+  id          String @id @default(cuid())
+  statementId String
+  leaseId     String
+
+  allocatedCents Int // umgelegte Kosten
+  advanceCents   Int // geleistete Vorauszahlungen
+  balanceCents   Int // allocated - advance (positiv = Nachzahlung)
+
+  statement OperatingCostStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@unique([statementId, leaseId])
+}
+
+// =====================================================================
+// TAX / AfA
+// =====================================================================
+
+enum DepreciationMethod {
+  LINEAR
+  DEGRESSIV
+  RESTNUTZUNGSDAUER
+}
+
+model DepreciationSchedule {
+  id             String             @id @default(cuid())
+  organizationId String
+  propertyId     String
+  method         DepreciationMethod @default(LINEAR)
+  baseCents      Int // Bemessungsgrundlage (Gebäudeanteil + Nebenkosten)
+  ratePercent    Float // jährlicher AfA-Satz in Prozent
+  startYear      Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property     Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  entries      DepreciationScheduleEntry[]
+
+  @@index([organizationId])
+  @@index([propertyId])
+}
+
+model DepreciationScheduleEntry {
+  id          String @id @default(cuid())
+  scheduleId  String
+  year        Int
+  amountCents Int // AfA-Betrag dieses Jahres
+
+  schedule DepreciationSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, year])
+}
+
+// =====================================================================
+// MAINTENANCE
+// =====================================================================
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING
+  DONE
+  CANCELED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Contractor {
+  id             String  @id @default(cuid())
+  organizationId String
+  name           String
+  trade          String? // Gewerk
+  email          String?
+  phone          String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  maintenanceTickets MaintenanceTicket[]
+
+  @@index([organizationId])
+}
+
+model MaintenanceTicket {
+  id                 String         @id @default(cuid())
+  organizationId     String
+  propertyId         String
+  contractorId       String?
+  title              String
+  description        String?
+  status             TicketStatus   @default(OPEN)
+  priority           TicketPriority @default(MEDIUM)
+  estimatedCostCents Int?
+  actualCostCents    Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property     Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  contractor   Contractor?  @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+  documents    Document[]
+
+  @@index([organizationId])
+  @@index([propertyId])
+}
+
+// =====================================================================
+// DOCUMENTS & AUDIT LOG
+// =====================================================================
+
+enum DocumentType {
+  MIETVERTRAG
+  SELBSTAUSKUNFT
+  BELEG
+  ABRECHNUNG
+  MAHNUNG
+  FOTO
+  SONSTIGES
+}
+
+/// Polymorphic document attachment. Exactly one of the optional FKs is set.
+model Document {
+  id             String       @id @default(cuid())
+  organizationId String
+  type           DocumentType @default(SONSTIGES)
+  fileName       String
+  fileKey        String // Storage key (S3/Blob)
+  mimeType       String?
+  sizeBytes      Int?
+
+  propertyId          String?
+  tenantId            String?
+  leaseId             String?
+  transactionId       String?
+  maintenanceTicketId String?
+
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property          Property?          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenant            Tenant?            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lease             Lease?             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  transaction       Transaction?       @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  maintenanceTicket MaintenanceTicket? @relation(fields: [maintenanceTicketId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+/// Audit trail for sensitive actions (DSGVO / Nachvollziehbarkeit).
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  action         String // z.B. "tenant.delete", "statement.finalize"
+  entityType     String
+  entityId       String
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([entityType, entityId])
+}
