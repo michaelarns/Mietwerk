@@ -130,6 +130,11 @@ model Organization {
   maintenanceTickets      MaintenanceTicket[]
   contractors             Contractor[]
   dunnings                Dunning[]
+  payments                Payment[]
+  paymentAllocations      PaymentAllocation[]
+  bankImports             BankImport[]
+  bankTransactions        BankTransaction[]
+  dunningPolicy           DunningPolicy?
   documents               Document[]
   auditLogs               AuditLog[]
   units                   Unit[]
@@ -292,6 +297,7 @@ model Lease {
   unit         Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
   leaseTenants LeaseTenant[]
   rentPayments RentPayment[]
+  payments     Payment[]
   documents    Document[]
 
   @@index([organizationId])
@@ -337,9 +343,10 @@ model RentPayment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  lease        Lease        @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lease        Lease               @relation(fields: [leaseId], references: [id], onDelete: Cascade)
   dunnings     Dunning[]
+  allocations  PaymentAllocation[]
 
   @@unique([leaseId, periodYear, periodMonth])
   @@index([organizationId])
@@ -358,14 +365,169 @@ model Dunning {
   rentPaymentId  String
   level          DunningLevel
   sentAt         DateTime?
-  feeCents       Int          @default(0) // Mahngebühr
+  feeCents       Int          @default(0) // Mahngebühr — nur als tatsächlicher Verzugsschaden (§ 280/286 BGB)
+  interestCents  Int          @default(0) // Verzugszinsen (§ 288 Abs. 1 BGB); 0 wenn deaktiviert
+  channel        String       @default("EMAIL") // Ausgabekanal (Phase 2: E-Mail/Text an Mailpit, kein PDF)
+  recipient      String? // Empfänger-Adresse des Schreibens (Mieter-E-Mail)
+  body           String? // generierter Schreiben-Text
   createdAt      DateTime     @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   rentPayment  RentPayment  @relation(fields: [rentPaymentId], references: [id], onDelete: Cascade)
 
+  // Jede Mahnstufe je Forderung nur einmal -> macht den Mahnlauf idempotent & monoton.
+  @@unique([rentPaymentId, level])
   @@index([organizationId])
   @@index([rentPaymentId])
+}
+
+// =====================================================================
+// PAYMENTS (Ist-Eingänge) & BANK IMPORT (Kontoumsatz)
+// =====================================================================
+
+enum PaymentMethod {
+  MANUAL // manuell erfasst
+  BANK_IMPORT // aus Kontoumsatz-Import verbucht
+}
+
+/// A received payment (Ist-Eingang). The amount is allocated to one or more
+/// rent receivables via PaymentAllocation; any unallocated remainder is Guthaben.
+model Payment {
+  id                String        @id @default(cuid())
+  organizationId    String
+  leaseId           String? // optional: noch keinem Mietverhältnis zugeordnet (unklarer Eingang)
+  amountCents       Int // Eingang in Cent (immer positiv)
+  valueDate         DateTime // Wertstellung / Zahlungsdatum (UTC gespeichert)
+  method            PaymentMethod @default(MANUAL)
+  counterparty      String? // Name des Zahlers
+  reference         String? // Verwendungszweck / Buchungstext
+  note              String?
+  bankTransactionId String?       @unique // Herkunft aus Import (1:1), wenn aus Kontoumsatz
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lease           Lease?              @relation(fields: [leaseId], references: [id], onDelete: SetNull)
+  bankTransaction BankTransaction?    @relation(fields: [bankTransactionId], references: [id], onDelete: SetNull)
+  allocations     PaymentAllocation[]
+
+  @@index([organizationId])
+  @@index([leaseId])
+}
+
+/// Allocation of (part of) a payment to a single rent receivable. The sum of a
+/// payment's allocations is always <= payment.amountCents.
+model PaymentAllocation {
+  id             String   @id @default(cuid())
+  organizationId String
+  paymentId      String
+  rentPaymentId  String
+  amountCents    Int
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payment      Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  rentPayment  RentPayment  @relation(fields: [rentPaymentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([paymentId])
+  @@index([rentPaymentId])
+}
+
+enum BankImportFormat {
+  CSV
+  CAMT053
+}
+
+/// A batch of imported bank transactions (one uploaded file).
+model BankImport {
+  id             String           @id @default(cuid())
+  organizationId String
+  fileName       String
+  format         BankImportFormat @default(CSV)
+  rowCount       Int              @default(0)
+  importedById   String?
+  createdAt      DateTime         @default(now())
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  transactions BankTransaction[]
+
+  @@index([organizationId])
+}
+
+enum BankTransactionStatus {
+  PENDING // importiert, noch nicht verbucht
+  BOOKED // als Payment verbucht
+  IGNORED // bewusst ignoriert
+}
+
+/// A single imported bank line. `dedupeHash` makes re-importing the same file
+/// idempotent (no double-booking). Once booked it links 1:1 to a Payment.
+model BankTransaction {
+  id               String                @id @default(cuid())
+  organizationId   String
+  importId         String
+  bookingDate      DateTime
+  valueDate        DateTime?
+  amountCents      Int // Betrag (positiv = Gutschrift/Eingang)
+  counterparty     String? // Name des Zahlers
+  reference        String? // Verwendungszweck
+  dedupeHash       String // Hash über (Datum, Betrag, Zweck, Name) -> Idempotenz
+  status           BankTransactionStatus @default(PENDING)
+  suggestedLeaseId String? // Zuordnungsvorschlag (Betrag/Zweck/Name)
+  createdAt        DateTime              @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  import       BankImport   @relation(fields: [importId], references: [id], onDelete: Cascade)
+  payment      Payment?
+
+  @@unique([organizationId, dedupeHash])
+  @@index([organizationId])
+  @@index([importId])
+}
+
+// =====================================================================
+// DUNNING POLICY (konfigurierbares Mahnwesen)
+// =====================================================================
+
+/// Per-organization dunning configuration. Thresholds and rates are
+/// configurable (not hard-coded) so they can be adjusted after legal review.
+model DunningPolicy {
+  id             String @id @default(cuid())
+  organizationId String @unique
+  toleranceDays  Int    @default(3) // Karenz nach Fälligkeit, bevor "überfällig" gilt
+
+  // Verzugszinsen: für Verbraucher 5 Prozentpunkte über dem Basiszinssatz
+  // (§ 288 Abs. 1 BGB). Der Basiszinssatz ist variabel (§ 247 BGB) und daher
+  // als Feld pflegbar. Standardmäßig deaktiviert (rechtlich heikel).
+  interestEnabled       Boolean @default(false)
+  baseRatePercent       Float   @default(0) // Basiszinssatz (§ 247 BGB) — vom Nutzer zu pflegen
+  interestMarginPercent Float   @default(5) // Aufschlag in Prozentpunkten (§ 288 Abs. 1 BGB)
+
+  // Mahngebühren: nur als tatsächlicher Verzugsschaden ansetzbar, keine freie
+  // Pauschale (§ 280/286 BGB). Standardmäßig deaktiviert.
+  feesEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  levels       DunningPolicyLevel[]
+}
+
+/// A single configurable dunning level (threshold + optional fee).
+model DunningPolicyLevel {
+  id             String       @id @default(cuid())
+  policyId       String
+  level          DunningLevel
+  minDaysOverdue Int // Tage über Fälligkeit, ab denen diese Stufe greift (inkl. Toleranz)
+  feeCents       Int          @default(0) // Mahngebühr dieser Stufe (nur realer Verzugsschaden)
+
+  policy DunningPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@unique([policyId, level])
 }
 
 // =====================================================================

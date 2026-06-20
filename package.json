@@ -52,6 +52,7 @@
     "next": "^15.2.3",
     "next-auth": "5.0.0-beta.25",
     "nodemailer": "^6.9.16",
+    "pg-boss": "^12.20.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.54.2",
@@ -63,7 +64,6 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
-    "concurrently": "^9.1.0",
     "@playwright/test": "^1.49.1",
     "@tailwindcss/postcss": "^4.0.15",
     "@testing-library/jest-dom": "^6.6.3",
@@ -73,6 +73,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
     "eslint": "^9.23.0",
     "eslint-config-next": "^15.2.3",
     "jsdom": "^25.0.1",
