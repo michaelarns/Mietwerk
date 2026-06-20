@@ -10,7 +10,7 @@
 | 1 | Stammdaten: `properties`, `tenants-leases` (Kern-CRUD) | ✅ abgeschlossen (Review-Gate) |
 | 2 | Geldfluss: `rent-payments` inkl. Mahnwesen | ✅ abgeschlossen (Review-Gate offen) |
 | 3 | Buchhaltung: `costs-accounting` + `tax-afa`, Anlage-V-Export | 🚧 Backend + Rechenlogik ✅, UI/E2E offen |
-| 4 | Abrechnung: `operating-cost-statement` Engine + PDF (Herzstück) | offen |
+| 4 | Abrechnung: `operating-cost-statement` Engine + PDF (Herzstück) | 🚧 gebaut, Review-Gate offen |
 | 5 | Auswertung: `dashboard-analytics` | offen |
 | 6 | KI: `ai-assistant` | offen |
 | 7 | Erweiterung: `maintenance` + `tenant-portal` | offen |
@@ -253,3 +253,62 @@ Steuerliche Regeln, Quellen und freigegebene Defaults: **ADR 0009**.
 - **E2E (Playwright):** Beleg erfassen+kategorisieren → AfA-Plan → Anlage-V-Vorschau
   zeigt korrekte Summen.
 - Danach Review-Gate (Annahmen-Freigabe), dann Phase 4.
+
+---
+
+## Phase 4 — Betriebskostenabrechnung 🚧 (Review-Gate offen)
+
+> Branch `claude/keen-faraday-fokhd5` (auf Phasen 0–3 aufgesetzt, da Phase 3
+> noch nicht in `main` integriert war — siehe „Offene Punkte").
+
+### Gebaut
+
+- **Schema:** `OperatingCostStatement` je Property + Zeitraum (≤ 12 Monate),
+  `advanceBasis` (SOLL/IST), konfigurierbarer Heizkosten-Verbrauchsanteil;
+  `…Item` (Snapshot + `consumptionSplit`), `…ItemShare` (Anteil je Position je
+  Mieter/Vermieter), `…Result` (Soll/Ist/Saldo, Tagesanteil),
+  `OperatingCostConsumption` (Verbrauchswerte je Einheit), `LeaseOccupancy`
+  (effektiv-datierte Personenzahl).
+- **Umlage-Engine (rein, höchste Testabdeckung):** Verteilung je Schlüssel
+  (Wohnfläche, Einheiten, Personen, Verbrauch) tagesgenau; Heizkosten-Split nach
+  §§ 7/8 HeizkostenV; **Leerstand trägt der Vermieter** (Divisor bleibt voll,
+  BGH VIII ZR 159/05); verlustfrei via `distributeCents`.
+- **Vorauszahlungsabgleich:** Soll (tagesgenau prorater) und Ist (NK-Anteil der
+  echten Zahlungen) → Nachzahlung/Guthaben.
+- **PDF-Infrastruktur (ADR 0003/0010):** `@react-pdf/renderer`, serverseitiges
+  `renderPdfToBuffer` + A4-Basis-Layout (`src/server/pdf`); Mieter-PDF mit den
+  vier formellen Mindestangaben (BGH/§ 259 BGB) + Abrechnungsfrist (§ 556 III).
+  Ablage über Storage-Port, Download via `/api/files/[id]`.
+- **Service/Router** (`operatingCostStatement`, org-gescoped) + **Ansichten**:
+  Liste, Anlegen (Objekt/Jahr), Verbrauchserfassung, Ergebnisvorschau je Mieter,
+  PDF erzeugen/herunterladen, Finalisieren/Löschen; Audit-Log.
+- **Seed:** je Mandant eine vollständige Beispielabrechnung 2025 (über den echten
+  Service). **ADR 0010** mit recherchierten Rechtsregeln + markierten Annahmen.
+
+### Verifiziert
+
+- `npm run typecheck`, `SKIP_ENV_VALIDATION=1 npm run lint`,
+  `SKIP_ENV_VALIDATION=1 npm run build` ✅
+- `npm run test`: **132 Unit-Tests grün** (u. a. 22 Engine/Abgleich + 3 PDF),
+  6 DB-Integrationsdateien skippen ohne DB (laufen in CI).
+- `prisma validate` ✅. ⚠️ **Nicht** gegen eine DB ausgeführt (kein Docker-Daemon
+  im Sandbox): `prisma db push`, `npm run db:seed`, die DB-Integrationstests
+  (inkl. Cross-Tenant Phase 4) und das Playwright-E2E sind geschrieben, aber
+  **in CI/mit DB zu verifizieren**.
+
+### Annahmen (⚠️ zur Freigabe — Details in ADR 0010)
+
+- Vorauszahlung **IST**; NK-Anteil anteilig aus gebündelter Sollmiete.
+- Heizkosten-Split **einstellbar** (Korridor 50–70 %), Default **50 % Verbrauch**.
+- Personenzahl **zeitraum-genau** (`LeaseOccupancy`); Proration **tagesgenau**.
+- Abrechnungszeitraum **Kalenderjahr** (≤ 12 Monate). Schlüssel je Kategorie aus
+  Phase-3-Mapping (Beleg-Override > Kategorie-Default > Wohnfläche).
+- Kostenzuordnung nach **Buchungs-/Leistungsdatum** im Zeitraum (nicht Kassenbasis).
+- `MITEIGENTUMSANTEIL` mangels Stammdaten → Fallback Wohnfläche (Hinweis).
+
+### Offene Punkte
+
+- **Phase 3 ist noch nicht in `main` integriert** (lag auf
+  `claude/ecstatic-albattani-qe4aj2`). Dieser Phase-4-Branch baut darauf auf; vor
+  dem Merge nach `main` zuerst Phase 3 integrieren (oder Phase 4 zieht Phase 3 mit).
+- Review-Gate: Annahmen freigeben; DB-gebundene Schritte in CI verifizieren.
