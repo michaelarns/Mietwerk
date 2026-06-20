@@ -34,10 +34,16 @@ export const authConfig = {
   // Without this, production (`next start`) rejects requests with UntrustedHost.
   trustHost: true,
   providers: [
-    GitHubProvider({
-      clientId: env.AUTH_GITHUB_ID,
-      clientSecret: env.AUTH_GITHUB_SECRET,
-    }),
+    // GitHub-OAuth nur registrieren, wenn Credentials gepflegt sind. Lokal
+    // genügt der Magic-Link (Nodemailer → Mailpit), ohne GitHub-App.
+    ...(env.AUTH_GITHUB_ID && env.AUTH_GITHUB_SECRET
+      ? [
+          GitHubProvider({
+            clientId: env.AUTH_GITHUB_ID,
+            clientSecret: env.AUTH_GITHUB_SECRET,
+          }),
+        ]
+      : []),
     NodemailerProvider({
       server: {
         host: env.EMAIL_SERVER_HOST,
