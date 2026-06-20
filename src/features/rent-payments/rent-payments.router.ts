@@ -6,11 +6,17 @@ import {
 import {
   generateChargesSchema,
   leaseIdInput,
+  recordPaymentSchema,
 } from "./rent-payments.schema";
 import {
   generateRentChargesForOrg,
   listRentPaymentsForLease,
 } from "./charge.service";
+import {
+  getLeaseCreditCents,
+  listPaymentsForLease,
+  recordPayment,
+} from "./payment.service";
 
 /**
  * `rent-payments` slice router. All reads via `orgProcedure`, all mutations via
@@ -32,5 +38,26 @@ export const rentPaymentRouter = createTRPCRouter({
     .input(leaseIdInput)
     .query(({ ctx, input }) =>
       listRentPaymentsForLease(ctx.db, ctx.organizationId, input.leaseId),
+    ),
+
+  // ── 2.2 Zahlungen & Abgleich ──
+  recordPayment: orgWriteProcedure
+    .input(recordPaymentSchema)
+    .mutation(({ ctx, input }) =>
+      recordPayment(ctx.db, ctx.organizationId, input, {
+        userId: ctx.session.user.id,
+      }),
+    ),
+
+  paymentsForLease: orgProcedure
+    .input(leaseIdInput)
+    .query(({ ctx, input }) =>
+      listPaymentsForLease(ctx.db, ctx.organizationId, input.leaseId),
+    ),
+
+  leaseCredit: orgProcedure
+    .input(leaseIdInput)
+    .query(({ ctx, input }) =>
+      getLeaseCreditCents(ctx.db, ctx.organizationId, input.leaseId),
     ),
 });
