@@ -15,6 +15,7 @@ import {
   renderDunningLetter,
   type DunningConfig,
 } from "./dunning-rules";
+import { formatPeriod } from "./labels";
 import { type UpdateDunningPolicyInput } from "./rent-payments.schema";
 
 /**
@@ -133,14 +134,6 @@ export async function upsertDunningPolicy(
     entityId: result.id,
   });
   return result;
-}
-
-function formatPeriod(year: number, month: number): string {
-  return new Intl.DateTimeFormat("de-DE", {
-    month: "long",
-    year: "numeric",
-    timeZone: "Europe/Berlin",
-  }).format(new Date(Date.UTC(year, month - 1, 15)));
 }
 
 export interface DunningRunResult {

@@ -9,6 +9,7 @@ import {
   idInput,
   importBankStatementSchema,
   leaseIdInput,
+  listOpenItemsSchema,
   recordPaymentSchema,
   runDunningSchema,
   updateDunningPolicySchema,
@@ -33,6 +34,11 @@ import {
   runDunningForOrg,
   upsertDunningPolicy,
 } from "./dunning.service";
+import {
+  getLeasePaymentOverview,
+  listLeaseOptions,
+  listOpenItems,
+} from "./queries.service";
 
 /**
  * `rent-payments` slice router. All reads via `orgProcedure`, all mutations via
@@ -125,4 +131,21 @@ export const rentPaymentRouter = createTRPCRouter({
         userId: ctx.session.user.id,
       }),
     ),
+
+  // ── 2.6 Ansichten ──
+  openItems: orgProcedure
+    .input(listOpenItemsSchema)
+    .query(({ ctx, input }) =>
+      listOpenItems(ctx.db, ctx.organizationId, input),
+    ),
+
+  leaseOverview: orgProcedure
+    .input(leaseIdInput)
+    .query(({ ctx, input }) =>
+      getLeasePaymentOverview(ctx.db, ctx.organizationId, input.leaseId),
+    ),
+
+  leaseOptions: orgProcedure.query(({ ctx }) =>
+    listLeaseOptions(ctx.db, ctx.organizationId),
+  ),
 });
