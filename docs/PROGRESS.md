@@ -16,6 +16,13 @@
 | 7 | Erweiterung: `maintenance` + `tenant-portal` | offen |
 | 8 | Go-to-Market: Stripe-Abo, Polish, Test-Härtung, Deployment | offen |
 
+## Branch-Workflow
+
+`main` ist die **eindeutige Integrations-Spitze** (Stand: Phase 0 + 1 + 2).
+Jede Phase brancht von `main`; nach dem Review-Gate wird der Phasen-Branch in
+`main` integriert (kein Force, kein History-Rewrite); die nächste Phase startet
+wieder von `main`. Details: [ADR 0008](decisions/0008-branch-workflow.md).
+
 ---
 
 ## Phase 0 — Fundament ✅
