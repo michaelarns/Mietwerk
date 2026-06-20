@@ -211,7 +211,7 @@ Details: [ADR 0008](decisions/0008-branch-workflow.md).
 
 ---
 
-## Phase 3 — Buchhaltung (`costs-accounting` + `tax-afa`) 🚧
+## Phase 3 — Buchhaltung (`costs-accounting` + `tax-afa`) ✅ (Review-Gate offen)
 
 Steuerliche Regeln, Quellen und freigegebene Defaults: **ADR 0009**.
 
