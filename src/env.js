@@ -23,6 +23,21 @@ export const env = createEnv({
     EMAIL_SERVER_PASSWORD: z.string().optional(),
     EMAIL_FROM: z.string().default("Mietwerk <no-reply@mietwerk.local>"),
 
+    // Object storage. STORAGE_DRIVER selects the adapter behind the storage port.
+    //  - "fs"  -> local filesystem (CI and locked-down environments)
+    //  - "s3"  -> S3-compatible (MinIO in dev, R2/Azure later)
+    STORAGE_DRIVER: z.enum(["fs", "s3"]).default("fs"),
+    STORAGE_FS_DIR: z.string().default(".storage"),
+    S3_ENDPOINT: z.string().url().optional(),
+    S3_REGION: z.string().default("us-east-1"),
+    S3_ACCESS_KEY_ID: z.string().optional(),
+    S3_SECRET_ACCESS_KEY: z.string().optional(),
+    S3_BUCKET: z.string().default("mietwerk"),
+    S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+
+    // Anthropic API (KI-Features, Phase 6). Optional — the app must start without it.
+    ANTHROPIC_API_KEY: z.string().optional(),
+
     DATABASE_URL: z.string().url(),
     NODE_ENV: z
       .enum(["development", "test", "production"])
@@ -51,6 +66,15 @@ export const env = createEnv({
     EMAIL_SERVER_USER: process.env.EMAIL_SERVER_USER,
     EMAIL_SERVER_PASSWORD: process.env.EMAIL_SERVER_PASSWORD,
     EMAIL_FROM: process.env.EMAIL_FROM,
+    STORAGE_DRIVER: process.env.STORAGE_DRIVER,
+    STORAGE_FS_DIR: process.env.STORAGE_FS_DIR,
+    S3_ENDPOINT: process.env.S3_ENDPOINT,
+    S3_REGION: process.env.S3_REGION,
+    S3_ACCESS_KEY_ID: process.env.S3_ACCESS_KEY_ID,
+    S3_SECRET_ACCESS_KEY: process.env.S3_SECRET_ACCESS_KEY,
+    S3_BUCKET: process.env.S3_BUCKET,
+    S3_FORCE_PATH_STYLE: process.env.S3_FORCE_PATH_STYLE,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     DATABASE_URL: process.env.DATABASE_URL,
     NODE_ENV: process.env.NODE_ENV,
   },

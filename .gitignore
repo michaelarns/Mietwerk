@@ -42,6 +42,9 @@ yarn-error.log*
 # prisma generated client (regenerated via postinstall / prisma generate)
 /generated
 
+# local-FS object storage (dev / CI uploads)
+/.storage
+
 # playwright
 /test-results
 /playwright-report

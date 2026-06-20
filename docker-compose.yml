@@ -29,5 +29,41 @@ services:
       - "1025:1025" # SMTP
       - "8025:8025" # Web UI
 
+  # S3-compatible object storage for documents & photos.
+  # Console: http://localhost:9001 (user/pass: minioadmin/minioadmin)
+  minio:
+    image: minio/minio:latest
+    container_name: mietwerk-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # Web console
+    volumes:
+      - mietwerk-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # One-shot: create the bucket on startup so the app can use it immediately.
+  minio-init:
+    image: minio/mc:latest
+    container_name: mietwerk-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      mc mb --ignore-existing local/mietwerk;
+      mc anonymous set none local/mietwerk;
+      echo 'MinIO bucket mietwerk ready';
+      "
+
 volumes:
   mietwerk-postgres-data:
+  mietwerk-minio-data:
