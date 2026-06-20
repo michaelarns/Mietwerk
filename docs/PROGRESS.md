@@ -9,7 +9,7 @@
 | 0 | Fundament: Plan, Architektur, Scaffold, Datenmodell, Auth & Multi-Tenancy, CI, Seed | ✅ abgeschlossen (Review-Gate) |
 | 1 | Stammdaten: `properties`, `tenants-leases` (Kern-CRUD) | ✅ abgeschlossen (Review-Gate) |
 | 2 | Geldfluss: `rent-payments` inkl. Mahnwesen | ✅ abgeschlossen (Review-Gate offen) |
-| 3 | Buchhaltung: `costs-accounting` + `tax-afa`, Anlage-V-Export | offen |
+| 3 | Buchhaltung: `costs-accounting` + `tax-afa`, Anlage-V-Export | 🚧 Backend + Rechenlogik ✅, UI/E2E offen |
 | 4 | Abrechnung: `operating-cost-statement` Engine + PDF (Herzstück) | offen |
 | 5 | Auswertung: `dashboard-analytics` | offen |
 | 6 | KI: `ai-assistant` | offen |
@@ -207,3 +207,49 @@ wieder von `main`. Details: [ADR 0008](decisions/0008-branch-workflow.md).
 - Rechtliche Annahmen oben **prüfen/freigeben** (insb. Verzugszinssatz-Defaults,
   Werktags-/Feiertagslogik der Fälligkeit).
 - pg-boss-Worker-Deployment bei serverlosem Hosting (ADR 0004/0007) bleibt offen.
+
+---
+
+## Phase 3 — Buchhaltung (`costs-accounting` + `tax-afa`) 🚧
+
+Steuerliche Regeln, Quellen und freigegebene Defaults: **ADR 0009**.
+
+### Gebaut (Backend + Rechenlogik, getestet) ✅
+
+- **Schema** (additiv): `Transaction` um `paidDate`, `netAmountCents`,
+  `allocationKey`, `expenseType` (+ § 82b-Verteilung) erweitert; `Property` um
+  `completionDate`, `constructionStartDate`, `acquisitionCostCents`;
+  `DepreciationSchedule` um `startMonth`, `usefulLifeYears`, `note`.
+- **Reine Logik (66 Unit-Tests grün):** `afa-rules` (linear/degressiv 5 % mit
+  Restwert-Wechsel/RND, Satz-Herleitung, monatsgenaue Proration, Cent-exakt),
+  `category-rules` (umlagefähig/Umlageschlüssel/Anlage-V + regelbasierter
+  Vorschlag), `anschaffungsnah-rules` (15 %-Schwelle netto, 3-Jahres-Fenster),
+  `erhaltung-82b-rules` (2–5-Jahres-Verteilung), `anlage-v` (Kassenbasis,
+  Vorzeichen/Überschuss).
+- **Services/Router/Export:** Beleg-CRUD (Soft-Delete, Audit), Beleg-Upload an
+  `Transaction` (Storage-Port), AfA-Plan-CRUD + Vorschlag, Anlage-V-Aufstellung,
+  anschaffungsnah-Status, CSV-Export. Router `cost` + `taxAfa` registriert.
+- **Cross-Tenant:** Integrationstest um die neuen Services erweitert.
+- **Seed:** Kosten quer über Kategorien (inkl. § 82b-Verteilung,
+  Finanzierungszinsen), Kassendaten, AfA-Pläne, **anschaffungsnaher Fall** (EFH).
+
+### Annahmen — **steuerlich, zur Freigabe markiert** (Details: ADR 0009)
+
+- **AfA-Satz** aus Fertigstellung hergeleitet (2,5 / 2 / 3 %), editierbar; LINEAR
+  Default. **Degressiv 5 %** (nicht 6 %), Baubeginn 1.10.2023–30.9.2029.
+- **Restnutzungsdauer:** nur Hinweis; BMF-Schreiben 22.2.2023 **aufgehoben**
+  (1.12.2025) → geringere Hürden.
+- **Bemessungsgrundlage** = Gebäudeanteil + anteilige Anschaffungsnebenkosten.
+- **15 %-Regel:** kumuliert netto im 3-Jahres-Fenster, Status UNTER/NAHE/
+  ÜBERSCHRITTEN; welche Belege zählen, entscheidet der Nutzer.
+- **§ 11 Kassenbasis** ohne automatische 10-Tage-Regel (nur Hinweis).
+- **§ 35a:** bei Vermietung i.d.R. Werbungskosten → nur Hinweis.
+
+### Offen (nächste Session, frischer Stand auf diesem Branch)
+
+- **3.7 UI:** Kostenliste + Beleg-Erfassung (Dialog, Upload, Kategorie-Vorschlag,
+  15 %-Warnung), AfA-Übersicht je Objekt (Plan anlegen/löschen), Anlage-V-Vorschau
+  je Objekt/Jahr + CSV-Download; Navigation.
+- **E2E (Playwright):** Beleg erfassen+kategorisieren → AfA-Plan → Anlage-V-Vorschau
+  zeigt korrekte Summen.
+- Danach Review-Gate (Annahmen-Freigabe), dann Phase 4.

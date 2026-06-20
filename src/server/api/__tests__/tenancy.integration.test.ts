@@ -34,6 +34,23 @@ import {
   getLeasePaymentOverview,
   listOpenItems,
 } from "~/features/rent-payments/queries.service";
+import {
+  createTransaction,
+  getTransaction,
+  softDeleteTransaction,
+  updateTransaction,
+} from "~/features/costs-accounting/costs.service";
+import {
+  getAnlageV,
+  getAnschaffungsnahStatus,
+  listTransactions,
+} from "~/features/costs-accounting/queries.service";
+import {
+  createSchedule,
+  deleteSchedule,
+  getAfaEntriesForProperty,
+  listSchedulesForProperty,
+} from "~/features/tax-afa/afa.service";
 import { db } from "~/server/db";
 
 // Gate on DATABASE_URL so `npm test` stays green where no DB is available.
@@ -85,6 +102,27 @@ async function seedOrg(tag: string) {
     where: { organizationId: org.id, leaseId: lease.id },
     select: { id: true },
   });
+  // A cost transaction and an AfA schedule, to exercise Phase-3 isolation.
+  const transaction = await db.transaction.create({
+    data: {
+      organizationId: org.id,
+      propertyId: property.id,
+      bookingDate: new Date(Date.UTC(2025, 2, 1)),
+      category: "INSTANDHALTUNG",
+      amountCents: 100_000,
+      expenseType: "SOFORTABZUG",
+    },
+  });
+  const schedule = await db.depreciationSchedule.create({
+    data: {
+      organizationId: org.id,
+      propertyId: property.id,
+      method: "LINEAR",
+      baseCents: 30_000_000,
+      ratePercent: 2,
+      startYear: 2024,
+    },
+  });
   return {
     orgId: org.id,
     userId: user.id,
@@ -93,6 +131,8 @@ async function seedOrg(tag: string) {
     tenantId: tenant.id,
     leaseId: lease.id,
     rentPaymentId: rp.id,
+    transactionId: transaction.id,
+    scheduleId: schedule.id,
   };
 }
 
@@ -220,5 +260,77 @@ describe("rent-payments services isolate mandanten", () => {
       where: { rentPaymentId: B.rentPaymentId },
     });
     expect(bDunnings).toBe(0);
+  });
+});
+
+describe("costs-accounting & tax-afa services isolate mandanten", () => {
+  itDb("A lists only its own cost transactions", async () => {
+    const list = await listTransactions(db, A.orgId, undefined);
+    const ids = list.map((t) => t.id);
+    expect(ids).toContain(A.transactionId);
+    expect(ids).not.toContain(B.transactionId);
+  });
+
+  itDb("A cannot read, update or soft-delete B's transaction", async () => {
+    await expect(getTransaction(db, A.orgId, B.transactionId)).rejects.toThrow();
+    await expect(
+      updateTransaction(db, A.orgId, { id: B.transactionId, amountCents: 999 }),
+    ).rejects.toThrow();
+    await expect(
+      softDeleteTransaction(db, A.orgId, B.transactionId, { userId: A.userId }),
+    ).rejects.toThrow();
+  });
+
+  itDb("A cannot book a cost onto B's property", async () => {
+    await expect(
+      createTransaction(
+        db,
+        A.orgId,
+        {
+          propertyId: B.propertyId,
+          bookingDate: new Date(),
+          category: "SONSTIGE",
+          amountCents: 100,
+          isAllocatable: false,
+          isAfaRelevant: false,
+          isLaborCost35a: false,
+          expenseType: "SOFORTABZUG",
+        },
+        { userId: A.userId },
+      ),
+    ).rejects.toThrow();
+  });
+
+  itDb("A cannot read B's Anlage-V or anschaffungsnah-Status", async () => {
+    await expect(getAnlageV(db, A.orgId, B.propertyId, 2025)).rejects.toThrow();
+    await expect(
+      getAnschaffungsnahStatus(db, A.orgId, B.propertyId),
+    ).rejects.toThrow();
+  });
+
+  itDb("A cannot read, create or delete AfA on B's property", async () => {
+    await expect(
+      listSchedulesForProperty(db, A.orgId, B.propertyId),
+    ).rejects.toThrow();
+    await expect(
+      getAfaEntriesForProperty(db, A.orgId, B.propertyId),
+    ).resolves.toHaveLength(0);
+    await expect(
+      createSchedule(
+        db,
+        A.orgId,
+        {
+          propertyId: B.propertyId,
+          method: "LINEAR",
+          baseCents: 1000,
+          startYear: 2024,
+          startMonth: 1,
+        },
+        { userId: A.userId },
+      ),
+    ).rejects.toThrow();
+    await expect(
+      deleteSchedule(db, A.orgId, B.scheduleId, { userId: A.userId }),
+    ).rejects.toThrow();
   });
 });

@@ -101,10 +101,12 @@ async function seedOrganization(opts: {
       postalCode: opts.postalCode,
       city: opts.city,
       buildYear: 1998,
+      completionDate: new Date(Date.UTC(1998, 0, 1)), // → linear 2 % (1925–2022)
       purchaseDate: new Date(Date.UTC(2019, 5, 1)),
       purchasePriceCents: 65_000_000, // 650.000 €
       landValueCents: 13_000_000, // 130.000 €
       buildingValueCents: 52_000_000, // 520.000 €
+      acquisitionCostCents: 4_160_000, // anteilige Anschaffungsnebenkosten (≈8 % Gebäude)
       units: {
         create: [
           {
@@ -131,15 +133,18 @@ async function seedOrganization(opts: {
     include: { units: true },
   });
 
-  // AfA: linear 2 % auf den Gebäudeanteil
+  // AfA: linear 2 % auf Gebäudeanteil + anteilige Nebenkosten, ab Kauf (Juni 2019).
   await db.depreciationSchedule.create({
     data: {
       organizationId: org.id,
       propertyId: property.id,
       method: "LINEAR",
-      baseCents: property.buildingValueCents ?? 0,
+      baseCents:
+        (property.buildingValueCents ?? 0) + (property.acquisitionCostCents ?? 0),
       ratePercent: 2,
       startYear: 2019,
+      startMonth: 6, // monatsgenau im Anschaffungsjahr (§ 7 Abs. 1 S. 4)
+      usefulLifeYears: 50,
     },
   });
 
@@ -177,36 +182,70 @@ async function seedOrganization(opts: {
     await seedPaymentsForLease(org.id, lease.id, now);
   }
 
-  // A couple of operating-cost transactions
+  // Operating-cost transactions across categories (Kassendatum = paidDate für § 11).
   await db.transaction.createMany({
     data: [
       {
         organizationId: org.id,
         propertyId: property.id,
         bookingDate: new Date(Date.UTC(2025, 0, 15)),
+        paidDate: new Date(Date.UTC(2025, 0, 20)),
         category: "VERSICHERUNG",
         description: "Gebäudeversicherung 2025",
         amountCents: 84_000,
         isAllocatable: true,
+        allocationKey: "WOHNFLAECHE",
+        expenseType: "SOFORTABZUG",
       },
       {
         organizationId: org.id,
         propertyId: property.id,
         bookingDate: new Date(Date.UTC(2025, 1, 10)),
+        paidDate: new Date(Date.UTC(2025, 1, 15)),
         category: "GRUNDSTEUER",
         description: "Grundsteuer Q1",
         amountCents: 31_000,
         isAllocatable: true,
+        allocationKey: "WOHNFLAECHE",
+        expenseType: "SOFORTABZUG",
       },
       {
         organizationId: org.id,
         propertyId: property.id,
         bookingDate: new Date(Date.UTC(2025, 2, 5)),
+        paidDate: new Date(Date.UTC(2025, 2, 5)),
         category: "INSTANDHALTUNG",
         description: "Reparatur Heizung",
         amountCents: 47_500,
+        netAmountCents: 39_916, // netto (19 % USt) — Bezugsgröße 15 %-Regel
         isAllocatable: false,
         isLaborCost35a: true,
+        expenseType: "SOFORTABZUG",
+      },
+      {
+        organizationId: org.id,
+        propertyId: property.id,
+        bookingDate: new Date(Date.UTC(2024, 9, 1)),
+        paidDate: new Date(Date.UTC(2024, 9, 10)),
+        category: "FINANZIERUNGSZINSEN",
+        description: "Darlehenszinsen 2024",
+        amountCents: 620_000,
+        isAllocatable: false,
+        expenseType: "SOFORTABZUG",
+      },
+      {
+        organizationId: org.id,
+        propertyId: property.id,
+        bookingDate: new Date(Date.UTC(2024, 6, 1)),
+        paidDate: new Date(Date.UTC(2024, 6, 5)),
+        category: "INSTANDHALTUNG",
+        description: "Dachsanierung (auf 3 Jahre verteilt, § 82b)",
+        amountCents: 1_800_000,
+        netAmountCents: 1_512_605,
+        isAllocatable: false,
+        expenseType: "VERTEILUNG_82B",
+        distributionYears: 3,
+        distributionStartYear: 2024,
       },
     ],
   });
@@ -279,10 +318,12 @@ async function seedOrganization(opts: {
       postalCode: opts.postalCode,
       city: opts.city,
       buildYear: 2012,
+      completionDate: new Date(Date.UTC(2012, 0, 1)),
       purchaseDate: new Date(Date.UTC(2021, 8, 1)),
       purchasePriceCents: 48_000_000,
       landValueCents: 16_000_000,
-      buildingValueCents: 32_000_000,
+      buildingValueCents: 32_000_000, // → 15 %-Schwelle = 48.000 €
+      acquisitionCostCents: 2_560_000,
       units: {
         create: [
           {
@@ -329,6 +370,52 @@ async function seedOrganization(opts: {
         create: [{ tenantId: couple[0].id }, { tenantId: couple[1].id }],
       },
     },
+  });
+
+  // AfA für das EFH (linear 2 %, fertiggestellt 2012).
+  await db.depreciationSchedule.create({
+    data: {
+      organizationId: org.id,
+      propertyId: efh.id,
+      method: "LINEAR",
+      baseCents: (efh.buildingValueCents ?? 0) + (efh.acquisitionCostCents ?? 0),
+      ratePercent: 2,
+      startYear: 2021,
+      startMonth: 9,
+      usefulLifeYears: 50,
+    },
+  });
+
+  // Anschaffungsnaher Fall: Modernisierung innerhalb von 3 Jahren nach dem Kauf
+  // (2021). Netto-Summe (52.000 €) übersteigt die 15 %-Schwelle (48.000 €) →
+  // Warnung "anschaffungsnahe Herstellungskosten" (§ 6 Abs. 1 Nr. 1a EStG).
+  await db.transaction.createMany({
+    data: [
+      {
+        organizationId: org.id,
+        propertyId: efh.id,
+        bookingDate: new Date(Date.UTC(2022, 2, 1)),
+        paidDate: new Date(Date.UTC(2022, 2, 10)),
+        category: "INSTANDHALTUNG",
+        description: "Bad-Modernisierung",
+        amountCents: 3_213_000,
+        netAmountCents: 2_700_000,
+        isAllocatable: false,
+        expenseType: "ANSCHAFFUNGSNAH",
+      },
+      {
+        organizationId: org.id,
+        propertyId: efh.id,
+        bookingDate: new Date(Date.UTC(2023, 5, 1)),
+        paidDate: new Date(Date.UTC(2023, 5, 7)),
+        category: "INSTANDHALTUNG",
+        description: "Fenstertausch",
+        amountCents: 2_975_000,
+        netAmountCents: 2_500_000,
+        isAllocatable: false,
+        expenseType: "ANSCHAFFUNGSNAH",
+      },
+    ],
   });
 
   // Run the dunning twice so overdue/partial items reach a visible Mahnstufe
