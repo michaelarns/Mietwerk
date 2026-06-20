@@ -10,6 +10,8 @@ import {
   importBankStatementSchema,
   leaseIdInput,
   recordPaymentSchema,
+  runDunningSchema,
+  updateDunningPolicySchema,
 } from "./rent-payments.schema";
 import {
   generateRentChargesForOrg,
@@ -26,6 +28,11 @@ import {
   importBankStatement,
   listPendingTransactions,
 } from "./bank-import.service";
+import {
+  getDunningPolicy,
+  runDunningForOrg,
+  upsertDunningPolicy,
+} from "./dunning.service";
 
 /**
  * `rent-payments` slice router. All reads via `orgProcedure`, all mutations via
@@ -95,5 +102,27 @@ export const rentPaymentRouter = createTRPCRouter({
     .input(idInput)
     .mutation(({ ctx, input }) =>
       ignoreBankTransaction(ctx.db, ctx.organizationId, input.id),
+    ),
+
+  // ── 2.4 Mahnwesen ──
+  dunningPolicy: orgProcedure.query(({ ctx }) =>
+    getDunningPolicy(ctx.db, ctx.organizationId),
+  ),
+
+  updateDunningPolicy: orgWriteProcedure
+    .input(updateDunningPolicySchema)
+    .mutation(({ ctx, input }) =>
+      upsertDunningPolicy(ctx.db, ctx.organizationId, input, {
+        userId: ctx.session.user.id,
+      }),
+    ),
+
+  /** Manually trigger the dunning run for the active organization. */
+  runDunning: orgWriteProcedure
+    .input(runDunningSchema)
+    .mutation(({ ctx, input }) =>
+      runDunningForOrg(ctx.db, ctx.organizationId, input?.now ?? new Date(), {
+        userId: ctx.session.user.id,
+      }),
     ),
 });

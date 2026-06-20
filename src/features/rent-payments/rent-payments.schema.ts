@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { DunningLevel } from "../../../generated/prisma";
+
 /** Integer-Cent, non-negative. */
 const cents = z.number().int().nonnegative();
 /** Strictly positive integer Cent (payments must be > 0). */
@@ -66,5 +68,31 @@ export const confirmTransactionsSchema = z.object({
     .min(1),
 });
 export type ConfirmTransactionsInput = z.infer<typeof confirmTransactionsSchema>;
+
+// ── 2.4 Mahnwesen (konfigurierbar) ────────────────────────────────────────────
+export const updateDunningPolicySchema = z.object({
+  toleranceDays: z.number().int().min(0).max(90),
+  interestEnabled: z.boolean(),
+  /** Basiszinssatz (§ 247 BGB) — kann historisch negativ sein. */
+  baseRatePercent: z.number().min(-10).max(20),
+  /** Aufschlag in Prozentpunkten (§ 288 Abs. 1 BGB: 5 für Verbraucher). */
+  interestMarginPercent: z.number().min(0).max(20),
+  feesEnabled: z.boolean(),
+  levels: z
+    .array(
+      z.object({
+        level: z.nativeEnum(DunningLevel),
+        minDaysOverdue: z.number().int().min(0).max(365),
+        feeCents: cents,
+      }),
+    )
+    .min(1)
+    .max(4),
+});
+export type UpdateDunningPolicyInput = z.infer<typeof updateDunningPolicySchema>;
+
+export const runDunningSchema = z
+  .object({ now: z.date().optional() })
+  .optional();
 
 export { cents, positiveCents };
