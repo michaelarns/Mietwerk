@@ -48,4 +48,23 @@ export const listOpenItemsSchema = z
   .optional();
 export type ListOpenItemsInput = z.infer<typeof listOpenItemsSchema>;
 
+// ── 2.3 Kontoumsatz-Import ────────────────────────────────────────────────────
+export const importBankStatementSchema = z.object({
+  fileName: z.string().min(1).max(255),
+  content: z.string().min(1).max(2_000_000), // raw CSV text (<= ~2 MB)
+});
+export type ImportBankStatementInput = z.infer<typeof importBankStatementSchema>;
+
+export const confirmTransactionsSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        bankTransactionId: z.string().cuid(),
+        leaseId: z.string().cuid(),
+      }),
+    )
+    .min(1),
+});
+export type ConfirmTransactionsInput = z.infer<typeof confirmTransactionsSchema>;
+
 export { cents, positiveCents };

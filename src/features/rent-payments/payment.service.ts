@@ -65,7 +65,12 @@ export async function recordPayment(
   db: PrismaClient,
   organizationId: string,
   input: RecordPaymentInput,
-  opts: { userId?: string | null; method?: "MANUAL" | "BANK_IMPORT" } = {},
+  opts: {
+    userId?: string | null;
+    method?: "MANUAL" | "BANK_IMPORT";
+    /** Link to the imported bank line (1:1, unique) — makes booking idempotent. */
+    bankTransactionId?: string;
+  } = {},
 ): Promise<RecordPaymentResult> {
   return db.$transaction(async (tx) => {
     const lease = await tx.lease.findFirst({
@@ -119,6 +124,7 @@ export async function recordPayment(
         counterparty: input.counterparty ?? null,
         reference: input.reference ?? null,
         note: input.note ?? null,
+        bankTransactionId: opts.bankTransactionId ?? null,
         allocations: {
           create: planned.map((a) => ({
             organizationId,

@@ -4,7 +4,10 @@ import {
   orgWriteProcedure,
 } from "~/server/api/trpc";
 import {
+  confirmTransactionsSchema,
   generateChargesSchema,
+  idInput,
+  importBankStatementSchema,
   leaseIdInput,
   recordPaymentSchema,
 } from "./rent-payments.schema";
@@ -17,6 +20,12 @@ import {
   listPaymentsForLease,
   recordPayment,
 } from "./payment.service";
+import {
+  confirmBankTransactions,
+  ignoreBankTransaction,
+  importBankStatement,
+  listPendingTransactions,
+} from "./bank-import.service";
 
 /**
  * `rent-payments` slice router. All reads via `orgProcedure`, all mutations via
@@ -59,5 +68,32 @@ export const rentPaymentRouter = createTRPCRouter({
     .input(leaseIdInput)
     .query(({ ctx, input }) =>
       getLeaseCreditCents(ctx.db, ctx.organizationId, input.leaseId),
+    ),
+
+  // ── 2.3 Kontoumsatz-Import ──
+  importBankStatement: orgWriteProcedure
+    .input(importBankStatementSchema)
+    .mutation(({ ctx, input }) =>
+      importBankStatement(ctx.db, ctx.organizationId, input, {
+        userId: ctx.session.user.id,
+      }),
+    ),
+
+  pendingTransactions: orgProcedure.query(({ ctx }) =>
+    listPendingTransactions(ctx.db, ctx.organizationId),
+  ),
+
+  confirmTransactions: orgWriteProcedure
+    .input(confirmTransactionsSchema)
+    .mutation(({ ctx, input }) =>
+      confirmBankTransactions(ctx.db, ctx.organizationId, input.items, {
+        userId: ctx.session.user.id,
+      }),
+    ),
+
+  ignoreTransaction: orgWriteProcedure
+    .input(idInput)
+    .mutation(({ ctx, input }) =>
+      ignoreBankTransaction(ctx.db, ctx.organizationId, input.id),
     ),
 });
