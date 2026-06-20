@@ -5,6 +5,7 @@ import {
 } from "../../../generated/prisma";
 
 import { type AnlageVGroup } from "./category-rules";
+import { type AnschaffungsnahStatus } from "./anschaffungsnah-rules";
 
 export const CATEGORY_LABELS: Record<TransactionCategory, string> = {
   GRUNDSTEUER: "Grundsteuer",
@@ -50,4 +51,23 @@ export const ANLAGE_V_GROUP_LABELS: Record<AnlageVGroup, string> = {
   LAUFENDE_BETRIEBSKOSTEN: "Laufende Betriebskosten",
   VERWALTUNGSKOSTEN: "Verwaltungskosten",
   SONSTIGE_WERBUNGSKOSTEN: "Sonstige Werbungskosten",
+};
+
+export const ANSCHAFFUNGSNAH_STATUS_LABELS: Record<
+  AnschaffungsnahStatus,
+  string
+> = {
+  UNTER: "Unter der 15 %-Grenze",
+  NAHE: "Nahe an der 15 %-Grenze",
+  UEBERSCHRITTEN: "15 %-Grenze überschritten",
+};
+
+/** Badge-/Banner-Variante je Status der anschaffungsnahen HK. */
+export const ANSCHAFFUNGSNAH_STATUS_VARIANT: Record<
+  AnschaffungsnahStatus,
+  "default" | "secondary" | "outline" | "destructive"
+> = {
+  UNTER: "outline",
+  NAHE: "secondary",
+  UEBERSCHRITTEN: "destructive",
 };
