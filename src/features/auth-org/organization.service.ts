@@ -9,6 +9,43 @@ import { type UpdateOrganizationInput } from "./organization.schema";
  * place that resolves and enforces the tenant boundary.
  */
 
+/** Build a URL-safe, reasonably unique slug from an organization name. */
+function buildSlug(name: string): string {
+  const base = name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return `${base || "org"}-${suffix}`;
+}
+
+/**
+ * Create a new organization and make the given user its OWNER. Used by the
+ * onboarding flow (first organization) and by future "create organization"
+ * actions. Not org-scoped — the user has no active organization yet.
+ */
+export async function createOrganizationForUser(
+  db: PrismaClient,
+  userId: string,
+  name: string,
+) {
+  return db.organization.create({
+    data: {
+      name,
+      slug: buildSlug(name),
+      memberships: { create: { userId, role: "OWNER" } },
+    },
+    select: { id: true, name: true, slug: true },
+  });
+}
+
 /** Organizations the given user belongs to, with their role in each. */
 export function listUserOrganizations(db: PrismaClient, userId: string) {
   return db.membership.findMany({

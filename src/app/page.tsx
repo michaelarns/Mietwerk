@@ -29,11 +29,20 @@ export default async function Home() {
               </span>
             </p>
           ) : null}
-          <Button asChild>
-            <Link href={session ? "/api/auth/signout" : "/api/auth/signin"}>
-              {session ? "Abmelden" : "Anmelden"}
-            </Link>
-          </Button>
+          {session ? (
+            <div className="flex gap-3">
+              <Button asChild>
+                <Link href="/properties">Zum Cockpit</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/api/auth/signout">Abmelden</Link>
+              </Button>
+            </div>
+          ) : (
+            <Button asChild>
+              <Link href="/api/auth/signin">Anmelden</Link>
+            </Button>
+          )}
         </div>
       </main>
     </HydrateClient>

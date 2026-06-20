@@ -13,6 +13,7 @@ import { ZodError } from "zod";
 
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
+import { readActiveOrgId } from "~/server/auth/active-org";
 import { resolveActiveOrganization } from "~/server/auth/tenancy";
 
 /**
@@ -133,12 +134,12 @@ export const protectedProcedure = t.procedure
  * injected into the context; services then scope all queries by
  * `ctx.organizationId`.
  *
- * The active organization is taken from the `x-organization-id` header when
- * present (and the caller is a member of it); otherwise it falls back to the
- * caller's first membership.
+ * The active organization is taken from the `x-organization-id` header or the
+ * `mw_active_org` cookie when present (and the caller is a member of it);
+ * otherwise it falls back to the caller's first membership.
  */
 export const orgProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-  const requestedOrgId = ctx.headers.get("x-organization-id") ?? undefined;
+  const requestedOrgId = readActiveOrgId(ctx.headers);
 
   const membership = await resolveActiveOrganization({
     db: ctx.db,

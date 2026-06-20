@@ -4,8 +4,12 @@ import {
   orgWriteProcedure,
   protectedProcedure,
 } from "~/server/api/trpc";
-import { updateOrganizationSchema } from "./organization.schema";
 import {
+  createOrganizationSchema,
+  updateOrganizationSchema,
+} from "./organization.schema";
+import {
+  createOrganizationForUser,
   getOrganization,
   listMembers,
   listUserOrganizations,
@@ -22,6 +26,13 @@ export const organizationRouter = createTRPCRouter({
   list: protectedProcedure.query(({ ctx }) =>
     listUserOrganizations(ctx.db, ctx.session.user.id),
   ),
+
+  /** Create a new organization and become its OWNER (onboarding). */
+  create: protectedProcedure
+    .input(createOrganizationSchema)
+    .mutation(({ ctx, input }) =>
+      createOrganizationForUser(ctx.db, ctx.session.user.id, input.name),
+    ),
 
   /** The currently active organization plus the caller's role within it. */
   current: orgProcedure.query(async ({ ctx }) => {
