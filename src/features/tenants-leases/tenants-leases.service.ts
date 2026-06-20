@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 
 import { type PrismaClient } from "../../../generated/prisma";
 import { writeAuditLog } from "~/server/audit";
+import { emptyToNull } from "~/lib/utils";
 import {
   isValidLeasePeriod,
   leasePeriodsOverlap,
@@ -79,8 +80,8 @@ export function createTenant(
       organizationId,
       firstName: input.firstName,
       lastName: input.lastName,
-      email: input.email || null,
-      phone: input.phone || null,
+      email: emptyToNull(input.email),
+      phone: emptyToNull(input.phone),
     },
     select: { id: true },
   });
@@ -98,8 +99,8 @@ export async function updateTenant(
     data: {
       firstName: rest.firstName,
       lastName: rest.lastName,
-      email: rest.email === undefined ? undefined : rest.email || null,
-      phone: rest.phone === undefined ? undefined : rest.phone || null,
+      email: rest.email === undefined ? undefined : emptyToNull(rest.email),
+      phone: rest.phone === undefined ? undefined : emptyToNull(rest.phone),
     },
     select: { id: true },
   });

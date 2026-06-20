@@ -25,6 +25,7 @@ import {
   FormMessage,
 } from "~/components/ui/form";
 import { Input } from "~/components/ui/input";
+import { emptyToNull } from "~/lib/utils";
 import { api } from "~/trpc/react";
 
 const formSchema = z.object({
@@ -85,8 +86,8 @@ export function TenantFormDialog({
     const payload = {
       firstName: values.firstName,
       lastName: values.lastName,
-      email: values.email || null,
-      phone: values.phone || null,
+      email: emptyToNull(values.email),
+      phone: emptyToNull(values.phone),
     };
     if (isEdit) update.mutate({ id: initial.id, ...payload });
     else create.mutate(payload);
