@@ -174,6 +174,126 @@ async function seedOrganization(opts: {
     ],
   });
 
+  // ── More variety for realistic data ──
+
+  // A third unit (DG) with a *beendetes* (ended) lease followed by an active one.
+  const dg = await db.unit.create({
+    data: {
+      organizationId: org.id,
+      propertyId: property.id,
+      label: "DG Mitte",
+      floor: "DG",
+      rooms: 2,
+      areaSqm: 49,
+      baseRentCents: 60_000,
+      operatingCostAdvanceCents: 12_000,
+    },
+  });
+  const former = await db.tenant.create({
+    data: {
+      organizationId: org.id,
+      firstName: "Vormieter",
+      lastName: `Ehemalig (${opts.slug})`,
+      email: `${opts.slug}-former@example.test`,
+    },
+  });
+  await db.lease.create({
+    data: {
+      organizationId: org.id,
+      unitId: dg.id,
+      type: "STANDARD",
+      startDate: new Date(Date.UTC(2019, 0, 1)),
+      endDate: new Date(Date.UTC(2020, 11, 31)), // beendet
+      baseRentCents: 55_000,
+      operatingCostAdvanceCents: 11_000,
+      depositCents: 165_000,
+      leaseTenants: { create: { tenantId: former.id } },
+    },
+  });
+  const dgTenant = await db.tenant.create({
+    data: {
+      organizationId: org.id,
+      firstName: "Aktuell",
+      lastName: `Bewohner (${opts.slug})`,
+      email: `${opts.slug}-dg@example.test`,
+    },
+  });
+  await db.lease.create({
+    data: {
+      organizationId: org.id,
+      unitId: dg.id,
+      type: "STAFFELMIETE",
+      startDate: new Date(Date.UTC(2021, 1, 1)), // kein Overlap mit beendetem
+      baseRentCents: 60_000,
+      operatingCostAdvanceCents: 12_000,
+      depositCents: 180_000,
+      leaseTenants: { create: { tenantId: dgTenant.id } },
+    },
+  });
+
+  // A second property: Einfamilienhaus rented to a couple (multi-tenant lease).
+  const efh = await db.property.create({
+    data: {
+      organizationId: org.id,
+      name: `${opts.city} – Gartenweg 7`,
+      type: "EINFAMILIENHAUS",
+      street: "Gartenweg",
+      houseNo: "7",
+      postalCode: opts.postalCode,
+      city: opts.city,
+      buildYear: 2012,
+      purchaseDate: new Date(Date.UTC(2021, 8, 1)),
+      purchasePriceCents: 48_000_000,
+      landValueCents: 16_000_000,
+      buildingValueCents: 32_000_000,
+      units: {
+        create: [
+          {
+            organizationId: org.id,
+            label: "Gesamtobjekt",
+            rooms: 5,
+            areaSqm: 142,
+            baseRentCents: 145_000,
+            operatingCostAdvanceCents: 25_000,
+          },
+        ],
+      },
+    },
+    include: { units: true },
+  });
+  const couple = await Promise.all([
+    db.tenant.create({
+      data: {
+        organizationId: org.id,
+        firstName: "Partner A",
+        lastName: `Haushalt (${opts.slug})`,
+        email: `${opts.slug}-efh-a@example.test`,
+      },
+    }),
+    db.tenant.create({
+      data: {
+        organizationId: org.id,
+        firstName: "Partner B",
+        lastName: `Haushalt (${opts.slug})`,
+        email: `${opts.slug}-efh-b@example.test`,
+      },
+    }),
+  ]);
+  await db.lease.create({
+    data: {
+      organizationId: org.id,
+      unitId: efh.units[0]!.id,
+      type: "INDEXMIETE",
+      startDate: new Date(Date.UTC(2023, 3, 1)),
+      baseRentCents: 145_000,
+      operatingCostAdvanceCents: 25_000,
+      depositCents: 435_000,
+      leaseTenants: {
+        create: [{ tenantId: couple[0].id }, { tenantId: couple[1].id }],
+      },
+    },
+  });
+
   return org;
 }
 

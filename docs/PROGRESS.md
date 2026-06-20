@@ -7,7 +7,7 @@
 | Phase | Inhalt | Status |
 |---|---|---|
 | 0 | Fundament: Plan, Architektur, Scaffold, Datenmodell, Auth & Multi-Tenancy, CI, Seed | ✅ abgeschlossen (Review-Gate) |
-| 1 | Stammdaten: `properties`, `tenants-leases` (Kern-CRUD) | offen |
+| 1 | Stammdaten: `properties`, `tenants-leases` (Kern-CRUD) | ✅ abgeschlossen (Review-Gate) |
 | 2 | Geldfluss: `rent-payments` inkl. Mahnwesen | offen |
 | 3 | Buchhaltung: `costs-accounting` + `tax-afa`, Anlage-V-Export | offen |
 | 4 | Abrechnung: `operating-cost-statement` Engine + PDF (Herzstück) | offen |
@@ -68,12 +68,62 @@
 - Dokumenten-Storage (S3-kompatibel vs. lokal) vor Phase 1 entscheiden.
 - `pg-boss`-Worker-Deployment bei serverlosem Hosting klären (ADR 0004).
 
-### Vorschlag Phase 1 (Stammdaten)
+---
 
-1. Slice `properties`: CRUD für `Property` + `Unit` (Service + tRPC + Formulare
-   mit react-hook-form/Zod), Org-Wechsel-UI (setzt `x-organization-id`).
-2. Slice `tenants-leases`: CRUD für `Tenant`, `Lease`, `LeaseTenant`
-   (mehrere Mieter pro Mietverhältnis), Kaution.
-3. Authentifizierte App-Shell (Navigation, Org-Switcher), geschützte Routen.
-4. Unit-Tests für Soft-Delete-Verhalten; Integrationstest gegen
-   Cross-Tenant-Zugriff (härtet den Chokepoint ab).
+## Phase 1 — Stammdaten ✅
+
+### Gebaut
+
+- **Lokale Laufumgebung:** MinIO in `docker-compose` (S3-kompatibel) + Bucket-
+  Init; Dev-Skripte `dev` (App+Worker via `concurrently`), `dev:app`,
+  `dev:worker`, `dev:up`; minimaler Worker-Platzhalter (`worker/index.ts`).
+- **Storage-Port** (`src/server/storage/`): `put/get/delete/getSignedUrl` mit
+  S3- und Local-FS-Adapter, Auswahl über `STORAGE_DRIVER` (ADR 0005).
+- **App-Shell:** geschützte Route-Group `(app)` (Redirect zu Login / Onboarding),
+  Header mit **Org-Switcher** (Cookie `mw_active_org` → tRPC-Chokepoint),
+  Navigation Objekte/Mieter. Onboarding legt erste Organisation an.
+- **Slice `properties`:** Property- & Unit-CRUD (Liste/Detail/Anlegen/Bearbeiten/
+  Soft-Delete), AfA-Felder (ohne Berechnung).
+- **Slice `tenants-leases`:** Tenant-CRUD; Lease-CRUD mit `LeaseTenant` (mehrere
+  Mieter); abgeleiteter Status (aktiv/beendet/zukünftig); Überschneidungs- und
+  Zeitraum-Regel serverseitig; Tenant-Soft-Delete-Schutz.
+- **Slice `documents`:** Upload/Download/Löschen an Property & Unit über den
+  Storage-Port (Routen `/api/files/*`), org-geprüft.
+- **shadcn/ui** ergänzt (card, table, dialog, dropdown-menu, select, badge,
+  sonner, form). Seed erweitert (2 Objekte/Mandant, beendete & Mehr-Mieter-Leases).
+
+### Fachliche Regeln (mit Tests)
+
+- Keine zwei sich überschneidenden Leases je Einheit (`assertNoOverlap`).
+- Beginn ≤ Ende (Zod-Refinement + Service-Guard).
+- Soft-Delete von Property/Unit blockiert bei aktivem/zukünftigem Lease (ADR 0006).
+- Geld als Integer-Cent, Anzeige als Euro (2 Nachkommastellen).
+
+### Verifiziert
+
+- `lint`, `typecheck`, `test` (33 Tests) ✅ — inkl. **Cross-Tenant-
+  Integrationstest** (Resolver + org-gescopte Services über alle neuen Slices).
+- `build` ✅ · `prisma db push` + erweiterter `db:seed` gegen PostgreSQL 16 ✅.
+- E2E: Playwright-Flow (anmelden → Objekt → Einheit → Mieter → Mietverhältnis).
+
+### Annahmen
+
+- Package Manager bleibt **npm** (Skriptnamen wie gefordert; pnpm auf Wunsch).
+- Aktive Organisation via httpOnly-Cookie `mw_active_org` (vom Switcher gesetzt).
+- Dokument-Download immer über authentifizierte App-Route (S3 → presigned
+  Redirect, FS → Stream). Kein direkter Browser→S3-Upload in Phase 1.
+
+### Offene Punkte / bewusst nicht gebaut
+
+- Mietvertrags-PDF, Selbstauskunft, Kautionsabrechnung/-verzinsung, Zahlungen/
+  Mahnwesen, Kosten/Steuer/AfA, pg-boss/Jobs — spätere Phasen.
+- Recht/Steuer-Marker in `SPEC.md` bleiben (Phasen 2–4).
+
+### Vorschlag Phase 2 (Geldfluss: `rent-payments`)
+
+1. Sollstellung generieren (monatlich je aktivem Lease), Ist-Abgleich.
+2. Import von Kontoumsätzen (CSV/CAMT) mit Zuordnung.
+3. Mehrstufiges Mahnwesen (Mahnstufen, Fristen) — Regeln **rechtlich
+   verifizieren** vor Implementierung.
+4. Worker: erste echte Jobs via pg-boss (Sollstellung, Fristen) — Hosting-
+   Entscheidung dann fällig.
