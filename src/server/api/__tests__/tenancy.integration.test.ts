@@ -51,6 +51,18 @@ import {
   getAfaEntriesForProperty,
   listSchedulesForProperty,
 } from "~/features/tax-afa/afa.service";
+import {
+  createStatement,
+  deleteStatement,
+  finalizeStatement,
+  runStatement,
+  setConsumption,
+} from "~/features/operating-cost-statement/statement.service";
+import {
+  getStatementDetail,
+  listStatements,
+} from "~/features/operating-cost-statement/queries.service";
+import { generateStatementPdf } from "~/features/operating-cost-statement/pdf/statement-pdf.service";
 import { db } from "~/server/db";
 
 // Gate on DATABASE_URL so `npm test` stays green where no DB is available.
@@ -123,6 +135,25 @@ async function seedOrg(tag: string) {
       startYear: 2024,
     },
   });
+  // An allocatable cost + a Betriebskostenabrechnung, to exercise Phase-4 isolation.
+  await db.transaction.create({
+    data: {
+      organizationId: org.id,
+      propertyId: property.id,
+      bookingDate: new Date(Date.UTC(2025, 1, 1)),
+      category: "GRUNDSTEUER",
+      amountCents: 30_000,
+      isAllocatable: true,
+      allocationKey: "WOHNFLAECHE",
+      expenseType: "SOFORTABZUG",
+    },
+  });
+  const statement = await createStatement(
+    db,
+    org.id,
+    { propertyId: property.id, periodYear: 2025 },
+    { userId: user.id },
+  );
   return {
     orgId: org.id,
     userId: user.id,
@@ -133,6 +164,7 @@ async function seedOrg(tag: string) {
     rentPaymentId: rp.id,
     transactionId: transaction.id,
     scheduleId: schedule.id,
+    statementId: statement.id,
   };
 }
 
@@ -331,6 +363,52 @@ describe("costs-accounting & tax-afa services isolate mandanten", () => {
     ).rejects.toThrow();
     await expect(
       deleteSchedule(db, A.orgId, B.scheduleId, { userId: A.userId }),
+    ).rejects.toThrow();
+  });
+});
+
+describe("operating-cost-statement services isolate mandanten", () => {
+  itDb("A lists only its own statements", async () => {
+    const list = await listStatements(db, A.orgId);
+    const ids = list.map((s) => s.id);
+    expect(ids).toContain(A.statementId);
+    expect(ids).not.toContain(B.statementId);
+  });
+
+  itDb("A cannot read B's statement detail", async () => {
+    await expect(
+      getStatementDetail(db, A.orgId, A.statementId),
+    ).resolves.toBeTruthy();
+    await expect(
+      getStatementDetail(db, A.orgId, B.statementId),
+    ).rejects.toThrow();
+  });
+
+  itDb("A cannot run, finalize or delete B's statement", async () => {
+    await expect(
+      runStatement(db, A.orgId, B.statementId, { userId: A.userId }),
+    ).rejects.toThrow();
+    await expect(
+      finalizeStatement(db, A.orgId, B.statementId, { userId: A.userId }),
+    ).rejects.toThrow();
+    await expect(
+      deleteStatement(db, A.orgId, B.statementId, { userId: A.userId }),
+    ).rejects.toThrow();
+  });
+
+  itDb("A cannot set consumption or generate a PDF on B's statement", async () => {
+    await expect(
+      setConsumption(db, A.orgId, {
+        statementId: B.statementId,
+        itemId: "whatever",
+        unitId: B.unitId,
+        value: 100,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      generateStatementPdf(db, A.orgId, B.statementId, B.leaseId, {
+        userId: A.userId,
+      }),
     ).rejects.toThrow();
   });
 });
