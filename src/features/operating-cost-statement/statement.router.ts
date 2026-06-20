@@ -16,8 +16,10 @@ import {
   listPropertyOptions,
   listStatements,
 } from "./queries.service";
+import { generateStatementPdf } from "./pdf/statement-pdf.service";
 import {
   createStatementSchema,
+  generatePdfSchema,
   setConsumptionSchema,
   statementIdInput,
   updateStatementSchema,
@@ -81,6 +83,15 @@ export const operatingCostStatementRouter = createTRPCRouter({
     .input(statementIdInput)
     .mutation(({ ctx, input }) =>
       deleteStatement(ctx.db, ctx.organizationId, input.statementId, {
+        userId: ctx.session.user.id,
+      }),
+    ),
+
+  /** 4.4 PDF je Mieter erzeugen; Rückgabe der Document-ID für /api/files/[id]. */
+  generatePdf: orgWriteProcedure
+    .input(generatePdfSchema)
+    .mutation(({ ctx, input }) =>
+      generateStatementPdf(ctx.db, ctx.organizationId, input.statementId, input.leaseId, {
         userId: ctx.session.user.id,
       }),
     ),
