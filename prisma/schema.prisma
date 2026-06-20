@@ -201,10 +201,13 @@ model Property {
   buildYear Int?
 
   // AfA-relevante Stammdaten (Geldbeträge in Cent)
-  purchaseDate       DateTime?
-  purchasePriceCents Int? // Gesamtkaufpreis
-  landValueCents     Int? // Grundstücksanteil (nicht abschreibbar)
-  buildingValueCents Int? // Gebäudeanteil (Bemessungsgrundlage AfA)
+  completionDate        DateTime? // Fertigstellung — bestimmt den linearen AfA-Satz (§ 7 Abs. 4 EStG)
+  constructionStartDate DateTime? // angezeigter Baubeginn — Eignung degressive AfA (§ 7 Abs. 5a EStG)
+  purchaseDate          DateTime?
+  purchasePriceCents    Int? // Gesamtkaufpreis
+  landValueCents        Int? // Grundstücksanteil (nicht abschreibbar)
+  buildingValueCents    Int? // Gebäudeanteil (Bemessungsgrundlage AfA)
+  acquisitionCostCents  Int? // anteilige Anschaffungsnebenkosten auf das Gebäude (erhöhen die AfA-Basis)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -553,19 +556,37 @@ enum TransactionCategory {
   SONSTIGE
 }
 
+/// Steuerliche Behandlung einer Ausgabe (siehe ADR 0009).
+enum ExpenseType {
+  SOFORTABZUG // Erhaltungsaufwand, sofort als Werbungskosten abziehbar
+  VERTEILUNG_82B // größerer Erhaltungsaufwand, auf 2–5 Jahre verteilt (§ 82b EStDV)
+  HERSTELLUNG_AKTIVIEREN // Herstellungskosten → über AfA (kein Sofortabzug)
+  ANSCHAFFUNGSNAH // anschaffungsnahe HK (§ 6 Abs. 1 Nr. 1a) → wie Herstellungskosten
+  ANSCHAFFUNGSNEBENKOSTEN // erhöhen die AfA-Bemessungsgrundlage (Gebäudeanteil)
+  NICHT_ABZIEHBAR // nicht abziehbar / privat veranlasst
+}
+
 model Transaction {
   id             String              @id @default(cuid())
   organizationId String
   propertyId     String?
   unitId         String?
-  bookingDate    DateTime
+  bookingDate    DateTime // Beleg-/Rechnungsdatum
+  paidDate       DateTime? // Zahlungsabfluss — maßgeblich für die Kassenbasis (§ 11 EStG)
   category       TransactionCategory @default(SONSTIGE)
   description    String?
 
-  amountCents    Int // Betrag in Cent (positiv = Ausgabe)
-  isAllocatable  Boolean @default(false) // umlagefähig (BetrKV)
-  isAfaRelevant  Boolean @default(false) // AfA-relevant (Anschaffung/Herstellung)
-  isLaborCost35a Boolean @default(false) // § 35a EStG Arbeitskostenanteil
+  amountCents    Int // gebuchter Betrag in Cent (positiv = Ausgabe; brutto = Werbungskosten)
+  netAmountCents Int? // ohne USt — Bezugsgröße für die 15 %-Prüfung (§ 6 Abs. 1 Nr. 1a)
+  isAllocatable  Boolean        @default(false) // umlagefähig (BetrKV)
+  allocationKey  AllocationKey? // Umlageschlüssel-Hinweis (Abrechnung erst Phase 4)
+  isAfaRelevant  Boolean        @default(false) // AfA-relevant (Anschaffung/Herstellung)
+  isLaborCost35a Boolean        @default(false) // § 35a EStG Arbeitskostenanteil (bei Vermietung i.d.R. Werbungskosten)
+
+  // Steuerliche Behandlung + optionale § 82b-Verteilung (ADR 0009)
+  expenseType           ExpenseType @default(SOFORTABZUG)
+  distributionYears     Int? // § 82b EStDV: 2–5 Jahre (nur bei VERTEILUNG_82B)
+  distributionStartYear Int? // erstes Jahr der Verteilung (Default: Jahr des Abflusses)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -655,13 +676,16 @@ enum DepreciationMethod {
 }
 
 model DepreciationSchedule {
-  id             String             @id @default(cuid())
-  organizationId String
-  propertyId     String
-  method         DepreciationMethod @default(LINEAR)
-  baseCents      Int // Bemessungsgrundlage (Gebäudeanteil + Nebenkosten)
-  ratePercent    Float // jährlicher AfA-Satz in Prozent
-  startYear      Int
+  id              String             @id @default(cuid())
+  organizationId  String
+  propertyId      String
+  method          DepreciationMethod @default(LINEAR)
+  baseCents       Int // Bemessungsgrundlage (Gebäudeanteil + anteilige Nebenkosten)
+  ratePercent     Float // jährlicher AfA-Satz in Prozent (linear/degressiv); bei RND aus usefulLifeYears
+  startYear       Int
+  startMonth      Int                @default(1) // 1–12, für monatsgenaue AfA im Anschaffungs-/Fertigstellungsjahr
+  usefulLifeYears Int? // (Rest-)Nutzungsdauer in Jahren — v.a. bei RESTNUTZUNGSDAUER (§ 7 Abs. 4 S. 2)
+  note            String? // z.B. Verweis auf Restnutzungsdauer-Gutachten (markiert, ADR 0009)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
